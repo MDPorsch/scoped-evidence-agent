@@ -153,9 +153,12 @@ def test_a_refusal_is_recorded_as_a_refusal() -> None:
     assert error.status == "refused"
 
 
-def test_a_reply_cut_off_by_the_token_cap_is_invalid() -> None:
-    error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message('{"items": [', stop="max_tokens"))))
-    assert error.status == "invalid"
+def test_a_reply_cut_off_by_the_token_cap_is_invalid_even_if_what_arrived_looks_complete() -> None:
+    whole = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}]})
+    error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(whole, stop="max_tokens"))))
+    assert error.status == "invalid" and "token limit" in error.detail
+    cut = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message('{"items": [', stop="max_tokens"))))
+    assert cut.status == "invalid" and "token limit" in cut.detail
 
 
 def test_a_reply_with_no_text_is_invalid() -> None:
