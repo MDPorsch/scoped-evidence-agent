@@ -4,6 +4,8 @@ container runtime they cannot run, and that is a statement about the machine, no
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -75,15 +77,60 @@ def test_a_collector_that_connects_elsewhere_fails_at_the_firewall_even_with_the
     assert "REACHED []" in result.stdout
 
 
+def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_not(image: str, tmp_path: Path) -> None:
+    """The positive control the test above lacks: a firewall that blocked everything would pass that one. Two listeners on this
+    machine, reached through the Docker bridge gateway; only one of them is in the allow-list, and both would accept if the
+    firewall let the connection through."""
+    inspected = subprocess.run(
+        ["docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"],
+        capture_output=True, text=True, check=False, timeout=60,
+    )  # fmt: skip
+    gateway = inspected.stdout.strip()
+    assert inspected.returncode == 0 and ipaddress.ip_address(gateway).version == 4, inspected.stderr
+    listeners = []
+    try:
+        for _ in range(2):
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("0.0.0.0", 0))  # reachable from the container through the bridge gateway
+            listener.listen(8)  # a completed handshake needs no accept()
+            listeners.append(listener)
+        allowed_port, other_port = (listener.getsockname()[1] for listener in listeners)
+        script = (
+            "import socket, sys\n"
+            "from scopedagent.live import isolation\n"
+            "from scopedagent.live.protocol import AllowedPair\n"
+            f"isolation.apply_rules([AllowedPair(address={gateway!r}, port={allowed_port})])\n"
+            "isolation.drop_privileges()\n"
+            "def reach(host, port):\n"
+            "    try:\n"
+            "        socket.create_connection((host, port), timeout=3).close()\n"
+            "        return True\n"
+            "    except OSError:\n"
+            "        return False\n"
+            f"print('ALLOWED', reach({gateway!r}, {allowed_port}))\n"
+            f"print('OTHER_PORT', reach({gateway!r}, {other_port}))\n"
+            "print('DOCUMENTATION', reach('192.0.2.1', 80))\n"
+        )
+        command = docker_command(image, tmp_path, "scopedagent-positive-control", [])
+        command[command.index("--entrypoint") : command.index("--entrypoint") + 2] = ["--entrypoint", "python"]
+        command = [*command[: command.index(image)], image, "-c", script]
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
+    finally:
+        for listener in listeners:
+            listener.close()
+    assert result.returncode == 0, result.stdout + result.stderr[-1500:]
+    assert "ALLOWED True" in result.stdout, result.stdout
+    assert "OTHER_PORT False" in result.stdout and "DOCUMENTATION False" in result.stdout, result.stdout
+
+
 def test_the_container_posture_is_what_the_command_says(image: str, tmp_path: Path) -> None:
     script = "import os, sys\nprint('ROOTFS_RO', not os.access('/opt', os.W_OK))\nprint('UID', os.getuid())\n"
     command = docker_command(image, tmp_path, "scopedagent-posture-test", [])
     command = [*command[: command.index(image)], image, "-c", script]
     result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
-    assert (
-        "ROOTFS_RO True" in result.stdout or "UID 0" in result.stdout
-    )  # root until the entrypoint drops it; the root fs is read-only
     assert result.returncode == 0, result.stderr[-1500:]
+    # both: the root file system is read-only, and the process starts as root (it must, to install the firewall; it then drops)
+    assert "ROOTFS_RO True" in result.stdout and "UID 0" in result.stdout, result.stdout
 
 
 def test_a_job_outside_the_allow_list_is_refused_by_the_container_itself(image: str, tmp_path: Path) -> None:
