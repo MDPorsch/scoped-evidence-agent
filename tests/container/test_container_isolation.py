@@ -5,9 +5,9 @@ container runtime they cannot run, and that is a statement about the machine, no
 from __future__ import annotations
 
 import ipaddress
-import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -78,28 +78,45 @@ def test_a_collector_that_connects_elsewhere_fails_at_the_firewall_even_with_the
 
 
 def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_not(image: str, tmp_path: Path) -> None:
-    """The positive control the test above lacks: a firewall that blocked everything would pass that one. Two listeners on this
-    machine, reached through the Docker bridge gateway; only one of them is in the allow-list, and both would accept if the
-    firewall let the connection through."""
-    inspected = subprocess.run(
-        ["docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"],
-        capture_output=True, text=True, check=False, timeout=60,
+    """The positive control the test above lacks: a firewall that blocked everything would pass that one.
+
+    Two listeners run in a helper container on the Docker bridge (so this process opens no socket and the test guard stays as it
+    is). Only one of them is in the allow-list; both would accept the connection if the firewall let it through."""
+    listen = (
+        "import socket, time\n"
+        "servers = []\n"
+        "for port in (9001, 9002):\n"
+        "    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', port)); s.listen(8)\n"
+        "    servers.append(s)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(120)\n"
+    )
+    name = "scopedagent-positive-control-listener"
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=60)
+    started = subprocess.run(
+        ["docker", "run", "-d", "--rm", "--name", name, "--entrypoint", "python", image, "-c", listen],
+        capture_output=True, text=True, check=False, timeout=120,
     )  # fmt: skip
-    gateway = inspected.stdout.strip()
-    assert inspected.returncode == 0 and ipaddress.ip_address(gateway).version == 4, inspected.stderr
-    listeners = []
+    assert started.returncode == 0, started.stderr[-1500:]
     try:
-        for _ in range(2):
-            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            listener.bind(("0.0.0.0", 0))  # reachable from the container through the bridge gateway
-            listener.listen(8)  # a completed handshake needs no accept()
-            listeners.append(listener)
-        allowed_port, other_port = (listener.getsockname()[1] for listener in listeners)
+        for _ in range(40):
+            logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True, check=False, timeout=30)
+            if "ready" in logs.stdout:
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("the helper listener did not start: " + logs.stdout + logs.stderr[-500:])
+        inspected = subprocess.run(
+            ["docker", "inspect", "--format", "{{.NetworkSettings.IPAddress}}", name],
+            capture_output=True, text=True, check=False, timeout=60,
+        )  # fmt: skip
+        address = inspected.stdout.strip()
+        assert inspected.returncode == 0 and ipaddress.ip_address(address).version == 4, inspected.stderr
         script = (
-            "import socket, sys\n"
+            "import socket\n"
             "from scopedagent.live import isolation\n"
             "from scopedagent.live.protocol import AllowedPair\n"
-            f"isolation.apply_rules([AllowedPair(address={gateway!r}, port={allowed_port})])\n"
+            f"isolation.apply_rules([AllowedPair(address={address!r}, port=9001)])\n"
             "isolation.drop_privileges()\n"
             "def reach(host, port):\n"
             "    try:\n"
@@ -107,8 +124,8 @@ def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_no
             "        return True\n"
             "    except OSError:\n"
             "        return False\n"
-            f"print('ALLOWED', reach({gateway!r}, {allowed_port}))\n"
-            f"print('OTHER_PORT', reach({gateway!r}, {other_port}))\n"
+            f"print('ALLOWED', reach({address!r}, 9001))\n"
+            f"print('OTHER_PORT', reach({address!r}, 9002))\n"
             "print('DOCUMENTATION', reach('192.0.2.1', 80))\n"
         )
         command = docker_command(image, tmp_path, "scopedagent-positive-control", [])
@@ -116,8 +133,7 @@ def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_no
         command = [*command[: command.index(image)], image, "-c", script]
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
     finally:
-        for listener in listeners:
-            listener.close()
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr[-1500:]
     assert "ALLOWED True" in result.stdout, result.stdout
     assert "OTHER_PORT False" in result.stdout and "DOCUMENTATION False" in result.stdout, result.stdout
