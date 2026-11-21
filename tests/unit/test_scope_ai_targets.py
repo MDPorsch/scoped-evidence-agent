@@ -567,3 +567,28 @@ def test_a_web_scope_with_its_targets_removed_is_still_refused() -> None:
     data = scope_dict()
     data["allowed_targets"] = []
     refused(data, ErrorCode.SCOPE_007)
+
+
+def test_a_probe_only_target_plans_probes_and_no_metadata_read() -> None:
+    data = ai_scope_dict()
+    t = target(data)
+    t["operations"] = ["ai_probe"]
+    del t["metadata_paths"]
+    data["allowed_operations"] = ["ai_probe"]
+    plan = accepted(data).planned
+    assert [op.kind for op in plan] == ["ai_probe"] * 4
+    assert all(op.path == PATH and op.target_id == "support-bot" for op in plan)
+
+
+def test_a_metadata_only_target_plans_one_read_per_path_in_file_order() -> None:
+    data = ai_scope_dict()
+    t = target(data)
+    t.update(operations=["ai_metadata"], metadata_paths=["/v1/models", "/v1/info", "/health"])
+    for name in ("probe_path", "probe_sets", "test_categories"):
+        del t[name]
+    data["allowed_operations"] = ["ai_metadata"]
+    assert [(op.kind, op.path, op.probe_set) for op in accepted(data).planned] == [
+        ("ai_metadata", "/v1/models", None),
+        ("ai_metadata", "/v1/info", None),
+        ("ai_metadata", "/health", None),
+    ]

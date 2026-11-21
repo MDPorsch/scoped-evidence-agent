@@ -100,11 +100,20 @@ def scope_validate(ctx: typer.Context, file: Annotated[Path, typer.Argument(help
     counts = Counter(op.kind for op in loaded.planned)
     typer.echo(f"engagement: {config.engagement_id}   mode: {config.mode}   expires: {_stamp(config.expires_at)}")
     typer.echo(f"scope sha256: {loaded.sha256}")
+    breakdown = f"dns {counts['dns_metadata']}, tls {counts['tls_metadata']}, http {counts['http_metadata']}"
+    if config.ai_targets:
+        breakdown += f", ai metadata {counts['ai_metadata']}, ai probes {counts['ai_probe']}"
     typer.echo(
-        f"targets: {len(config.allowed_targets)}   planned operations: {len(loaded.planned)} "
-        f"(dns {counts['dns_metadata']}, tls {counts['tls_metadata']}, http {counts['http_metadata']})"
+        f"targets: {len(config.allowed_targets)}   planned operations: {len(loaded.planned)} ({breakdown})"
         f"   max_requests: {config.max_requests}"
     )
+    if config.ai_targets:
+        tokens = sum(ai.worst_case_tokens for ai in config.ai_targets)
+        typer.echo(
+            f"ai targets: {len(config.ai_targets)}   probe requests: {counts['ai_probe']}   worst-case tokens: {tokens}"
+        )
+        for ai in config.ai_targets:
+            typer.echo(f"  {ai.id} ({ai.kind}, {ai.environment})")
     if len(loaded.planned) > config.max_requests:
         typer.echo(
             f"warning: the scope plans {len(loaded.planned)} operations but max_requests is {config.max_requests}; "

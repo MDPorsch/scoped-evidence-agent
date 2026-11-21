@@ -78,8 +78,27 @@ def register_engagement(session: Session, loaded: LoadedScope, *, now: datetime)
                     port=port,
                     allowed_path_prefixes=list(entry.allowed_paths),
                     verified_scope=True,
+                    kind="web",
                 )
             )
+    for ai in loaded.config.ai_targets:
+        paths = [
+            *ai.metadata_paths,
+            *([ai.probe_path] if ai.probe_path else []),
+        ]  # the only paths an AI target may be contacted at
+        session.add(
+            Target(
+                id=new_id(),
+                engagement_id=engagement.id,
+                host_canonical=ai.host,
+                scheme=ai.scheme,
+                port=ai.port,
+                allowed_path_prefixes=paths,
+                verified_scope=True,
+                kind="ai",
+                ai_target_id=ai.id,
+            )
+        )
     session.flush()
     return engagement
 
@@ -263,6 +282,7 @@ def record_observation(
         target is None
         or target.engagement_id != run.engagement_id
         or (target.host_canonical, target.scheme, target.port) != wanted
+        or target.kind != ("ai" if envelope.observation_type.startswith("ai_") else "web")
     ):
         _deny(
             session,

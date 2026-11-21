@@ -276,14 +276,18 @@ def test_the_database_accepts_the_ai_adapter_and_types_but_nothing_else(db: Any)
         row.update(over)
         return row
 
+    with db.begin() as session:
+        seed(session)
     for ok in (
         {"observation_type": "ai_probe"},
         {"observation_type": "ai_metadata", "id": "o2", "normalized_input_hash": "d" * 64},
     ):
         with db.begin() as session:
-            seed(session)
             sql_insert(session, "observations", **observation(**ok))
-    for bad in ({"adapter": "offline_api"}, {"observation_type": "api_read"}, {"adapter": "live_ai"}):
+    for bad in (
+        {"adapter": "offline_api", "id": "o3"},
+        {"observation_type": "api_read", "id": "o4"},
+        {"adapter": "live_ai", "id": "o5"},
+    ):
         with pytest.raises(DatabaseError), db.begin() as session:
-            seed(session)
             sql_insert(session, "observations", **observation(**bad))

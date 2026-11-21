@@ -1,4 +1,4 @@
-"""Initial schema (M1): engagements, targets, runs, observations, artifacts, findings, audit.
+"""Initial schema (M1): engagements, targets (web and AI), runs, observations, artifacts, findings, audit.
 
 Written as explicit DDL, not generated from the models, so that a later change to a model can never rewrite what
 revision 0001 means. tests/integration/test_database.py compares the result with the models.
@@ -47,12 +47,16 @@ def upgrade() -> None:
         sa.Column("port", sa.Integer(), nullable=False),
         sa.Column("allowed_path_prefixes", sa.JSON(), nullable=False),
         sa.Column("verified_scope", sa.Boolean(), nullable=False),
+        sa.Column("kind", sa.String(), server_default="web", nullable=False),
+        sa.Column("ai_target_id", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["engagement_id"], ["engagements.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("engagement_id", "host_canonical", "scheme", "port", name="uq_targets_endpoint"),
+        sa.UniqueConstraint("engagement_id", "kind", "host_canonical", "scheme", "port", name="uq_targets_endpoint"),
         sa.CheckConstraint("port BETWEEN 1 AND 65535", name="ck_targets_port"),
         sa.CheckConstraint("scheme IN ('http', 'https')", name="ck_targets_scheme"),
         sa.CheckConstraint("verified_scope IN (0, 1)", name="ck_targets_verified"),
+        sa.CheckConstraint("kind IN ('web', 'ai')", name="ck_targets_kind"),
+        sa.CheckConstraint("(kind = 'ai') = (ai_target_id IS NOT NULL)", name="ck_targets_ai_target_id"),
     )
     op.create_table(
         "runs",
@@ -99,9 +103,12 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("id", "run_id", name="uq_observations_id_run"),
         sa.CheckConstraint(
-            "observation_type IN ('dns_metadata', 'tls_metadata', 'http_metadata')", name="ck_observations_type"
+            "observation_type IN ('dns_metadata', 'tls_metadata', 'http_metadata', 'ai_metadata', 'ai_probe')",
+            name="ck_observations_type",
         ),
-        sa.CheckConstraint("adapter IN ('offline_dns', 'offline_tls', 'offline_http')", name="ck_observations_adapter"),
+        sa.CheckConstraint(
+            "adapter IN ('offline_dns', 'offline_tls', 'offline_http', 'offline_ai')", name="ck_observations_adapter"
+        ),
         sa.CheckConstraint(f"error_status IN ({ERROR_STATUSES})", name="ck_observations_error_status"),
         sa.CheckConstraint("length(source_hash) = 64", name="ck_observations_source_hash"),
         sa.CheckConstraint("length(normalized_input_hash) = 64", name="ck_observations_input_hash"),

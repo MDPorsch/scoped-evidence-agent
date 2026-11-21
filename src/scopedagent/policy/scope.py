@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from scopedagent.errors import ErrorCode, ScopeError
 from scopedagent.logs import safe_text
+from scopedagent.policy.probes import PROBE_SETS
 from scopedagent.strictyaml import StrictYamlError, strict_load
 
 MAX_SCOPE_BYTES = 64 * 1024
@@ -33,9 +34,13 @@ _ENGAGEMENT_ID = re.compile(r"[a-z0-9][a-z0-9._-]{2,63}")
 _APPROVAL_REF = re.compile(r"[A-Za-z0-9._:/#-]{3,128}")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})")
 _SCHEMES = ("http", "https")
+_AI_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,39}")
 _CONSTRAINT_ERRORS = {"greater_than", "greater_than_equal", "less_than", "less_than_equal", "too_short", "too_long"}
 
-OperationKind = Literal["dns_metadata", "tls_metadata", "http_metadata"]
+OperationKind = Literal["dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe"]
+AiOperation = Literal["ai_metadata", "ai_probe"]
+AiCategory = Literal["prompt_injection", "system_prompt_leakage", "sensitive_information_disclosure", "output_handling"]
+RULES_NOT_AVAILABLE = "not available in this version: only forbidden is accepted"
 
 
 class ScopeValueError(ValueError):
@@ -172,12 +177,170 @@ class TargetEntry(_Model):
         return self
 
 
+# ------------------------------------------------------------------------------- AI-system targets ----
+class AiLimits(_Model):
+    max_model_requests: Annotated[int, Field(ge=1, le=200)]
+    max_input_tokens: Annotated[int, Field(ge=1, le=4000)]
+    max_output_tokens: Annotated[int, Field(ge=1, le=2000)]
+    max_total_tokens: Annotated[int, Field(ge=1, le=200_000)]
+
+
+class AiRules(_Model):
+    """Every rule is required and `forbidden` is the only accepted value (D-E29)."""
+
+    tool_invocation: str
+    persistent_state_writes: str
+    personal_data_in_probes: str
+    target_output_to_assistant_model: str
+
+    @field_validator("*")
+    @classmethod
+    def _forbidden(cls, value: str) -> str:
+        if value == "forbidden":
+            return value
+        if value == "allowed":
+            raise ScopeValueError(ErrorCode.SCOPE_011, RULES_NOT_AVAILABLE)
+        raise ScopeValueError(ErrorCode.SCOPE_003, "a rule must be exactly 'forbidden'")
+
+
+class AiTarget(_Model):
+    id: str
+    kind: Literal["chat_endpoint", "agent", "rag_service", "mcp_server"]
+    layer: str
+    environment: Literal["test", "staging", "production"]
+    production_approval_ref: str | None = None
+    host: str
+    scheme: Literal["http", "https"]
+    port: int
+    api_style: Literal["openai_compatible", "messages", "custom_json"]
+    operations: Annotated[list[AiOperation], Field(min_length=1)]
+    metadata_paths: Annotated[list[str], Field(max_length=5)] = []
+    probe_path: str | None = None
+    probe_sets: list[str] = []
+    test_categories: list[AiCategory] = []
+    limits: AiLimits
+    rules: AiRules
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        if not _AI_ID.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "id must be 2 to 40 characters of a-z, 0-9 and -, starting with a letter or digit"
+            )
+        return value
+
+    @field_validator("layer")
+    @classmethod
+    def _layer(cls, value: str) -> str:
+        if value != "application":
+            raise ScopeValueError(
+                ErrorCode.SCOPE_011,
+                "only the application layer can be tested: a model provider's own service is out of scope",
+            )
+        return value
+
+    @field_validator("production_approval_ref")
+    @classmethod
+    def _production_ref(cls, value: str | None) -> str | None:
+        if value is not None and not _APPROVAL_REF.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003,
+                "production_approval_ref must be 3 to 128 characters of letters, digits and . _ : / # -",
+            )
+        return value
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, value: str) -> str:
+        return _host_for_model(value)
+
+    @field_validator("port")
+    @classmethod
+    def _port(cls, value: int) -> int:
+        if not 1 <= value <= 65535:
+            raise ScopeValueError(ErrorCode.SCOPE_006, "port must be an integer from 1 to 65535")
+        return value
+
+    @field_validator("operations", "probe_sets", "test_categories")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ScopeValueError(ErrorCode.SCOPE_003, "a list may not repeat a value")
+        return value
+
+    @field_validator("metadata_paths")
+    @classmethod
+    def _metadata_paths(cls, value: list[str]) -> list[str]:
+        paths = [_path_for_model(p) for p in value]
+        if len(set(paths)) != len(paths):
+            raise ScopeValueError(ErrorCode.SCOPE_006, "metadata_paths must not repeat a path")
+        return paths
+
+    @field_validator("probe_path")
+    @classmethod
+    def _probe_path(cls, value: str | None) -> str | None:
+        return None if value is None else _path_for_model(value)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> AiTarget:
+        if (self.environment == "production") != (self.production_approval_ref is not None):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_011,
+                "production_approval_ref is required for environment production and accepted only there",
+            )
+        wants_metadata, wants_probe = "ai_metadata" in self.operations, "ai_probe" in self.operations
+        if wants_metadata != bool(self.metadata_paths):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_009, "metadata_paths are required for ai_metadata and valid only with it"
+            )
+        probe_fields = (self.probe_path is not None, bool(self.probe_sets), bool(self.test_categories))
+        if wants_probe != all(probe_fields) or (not wants_probe and any(probe_fields)):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_009,
+                "probe_path, probe_sets and test_categories are required for ai_probe and valid only with it",
+            )
+        for set_id in self.probe_sets:
+            probe_set = PROBE_SETS.get(set_id)
+            if probe_set is None:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_011, "a probe set must be one of the reviewed library; a scope cannot define one"
+                )
+            if probe_set.category not in self.test_categories:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_011,
+                    f"probe set {set_id} is in category {probe_set.category}, which this target does not authorize",
+                )
+        requests = self.probe_requests
+        if requests > self.limits.max_model_requests:
+            raise ScopeValueError(
+                ErrorCode.SCOPE_007,
+                f"the probe sets need {requests} requests but max_model_requests is {self.limits.max_model_requests}",
+            )
+        if self.worst_case_tokens > self.limits.max_total_tokens:
+            raise ScopeValueError(
+                ErrorCode.SCOPE_007,
+                f"the worst case is {self.worst_case_tokens} tokens "
+                f"but max_total_tokens is {self.limits.max_total_tokens}",
+            )
+        return self
+
+    @property
+    def probe_requests(self) -> int:
+        return sum(PROBE_SETS[s].count for s in self.probe_sets) if "ai_probe" in self.operations else 0
+
+    @property
+    def worst_case_tokens(self) -> int:
+        return self.probe_requests * (self.limits.max_input_tokens + self.limits.max_output_tokens)
+
+
 class ScopeConfig(_Model):
     engagement_id: str
     owner_approval_ref: str
     expires_at: datetime
     mode: Literal["offline", "live"] = "offline"
-    allowed_targets: Annotated[list[TargetEntry], Field(min_length=1, max_length=20)]
+    allowed_targets: Annotated[list[TargetEntry], Field(max_length=20)]
+    ai_targets: Annotated[list[AiTarget], Field(max_length=10)] = []
     allowed_operations: Annotated[list[OperationKind], Field(min_length=1)]
     max_requests: Annotated[int, Field(ge=1, le=500)]
     max_parallelism: Annotated[int, Field(ge=1, le=4)] = 2
@@ -227,6 +390,13 @@ class ScopeConfig(_Model):
 
     @model_validator(mode="after")
     def _cross_field(self) -> ScopeConfig:
+        if not self.allowed_targets and not self.ai_targets:
+            raise ScopeValueError(ErrorCode.SCOPE_007, "a scope needs at least one target")
+        self._check_web_targets()
+        self._check_ai_targets()
+        return self
+
+    def _check_web_targets(self) -> None:
         seen: set[tuple[str, str, int]] = set()
         for entry in self.allowed_targets:
             for scheme in entry.schemes:
@@ -237,11 +407,32 @@ class ScopeConfig(_Model):
                             ErrorCode.SCOPE_005, "two entries name the same scheme, host and port: they are not merged"
                         )
                     seen.add(key)
-        if "tls_metadata" in self.allowed_operations and not any("https" in e.schemes for e in self.allowed_targets):
+        allowed = set(self.allowed_operations)
+        if "dns_metadata" in allowed and not self.allowed_targets:
+            raise ScopeValueError(ErrorCode.SCOPE_009, "dns_metadata is allowed but no web target is listed")
+        if "tls_metadata" in allowed and not any("https" in e.schemes for e in self.allowed_targets):
             raise ScopeValueError(ErrorCode.SCOPE_009, "tls_metadata is allowed but no target uses https")
-        if "http_metadata" in self.allowed_operations and not any(e.allowed_paths for e in self.allowed_targets):
+        if "http_metadata" in allowed and not any(e.allowed_paths for e in self.allowed_targets):
             raise ScopeValueError(ErrorCode.SCOPE_009, "http_metadata is allowed but no target lists an allowed path")
-        return self
+
+    def _check_ai_targets(self) -> None:
+        ids: set[str] = set()
+        endpoints: set[tuple[str, str, int]] = set()
+        for ai in self.ai_targets:
+            endpoint = (ai.scheme, ai.host, ai.port)
+            if ai.id in ids or endpoint in endpoints:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_005, "two AI targets share an id or an endpoint: they are not merged"
+                )
+            ids.add(ai.id)
+            endpoints.add(endpoint)
+        allowed = set(self.allowed_operations)
+        used_by_ai = {op for ai in self.ai_targets for op in ai.operations}
+        if not used_by_ai <= allowed:
+            raise ScopeValueError(ErrorCode.SCOPE_009, "an AI target uses an operation the scope does not allow")
+        for kind in ("ai_metadata", "ai_probe"):
+            if kind in allowed and kind not in used_by_ai:
+                raise ScopeValueError(ErrorCode.SCOPE_009, f"{kind} is allowed but no AI target uses it")
 
 
 # ----------------------------------------------------------------------------------------- plan ----
@@ -252,6 +443,9 @@ class PlannedOperation:
     scheme: str
     port: int
     path: str | None
+    target_id: str | None = None
+    probe_set: str | None = None
+    probe_index: int | None = None
 
 
 def plan_operations(config: ScopeConfig) -> tuple[PlannedOperation, ...]:
@@ -273,6 +467,17 @@ def plan_operations(config: ScopeConfig) -> tuple[PlannedOperation, ...]:
                         PlannedOperation("http_metadata", entry.host, scheme, port, path)
                         for path in entry.allowed_paths
                     )
+    for ai in config.ai_targets:  # after every web entry; an AI target plans no dns, tls or http operation (D-E34)
+        if "ai_metadata" in ai.operations:
+            operations.extend(
+                PlannedOperation("ai_metadata", ai.host, ai.scheme, ai.port, path, ai.id) for path in ai.metadata_paths
+            )
+        if "ai_probe" in ai.operations:
+            for set_id in ai.probe_sets:
+                operations.extend(
+                    PlannedOperation("ai_probe", ai.host, ai.scheme, ai.port, ai.probe_path, ai.id, set_id, index)
+                    for index in range(PROBE_SETS[set_id].count)
+                )
     return tuple(operations)
 
 
@@ -285,9 +490,33 @@ class LoadedScope:
     planned: tuple[PlannedOperation, ...]
 
 
-def normalised(config: ScopeConfig) -> dict[str, Any]:
-    """The scope as it is hashed: defaults filled in, hosts canonical, the expiry in UTC, lists in the order given."""
+def _normalised_ai(ai: AiTarget) -> dict[str, Any]:
     return {
+        "id": ai.id,
+        "kind": ai.kind,
+        "layer": ai.layer,
+        "environment": ai.environment,
+        "production_approval_ref": ai.production_approval_ref,
+        "host": ai.host,
+        "scheme": ai.scheme,
+        "port": ai.port,
+        "api_style": ai.api_style,
+        "operations": list(ai.operations),
+        "metadata_paths": list(ai.metadata_paths),
+        "probe_path": ai.probe_path,
+        "probe_sets": list(ai.probe_sets),
+        "test_categories": list(ai.test_categories),
+        "limits": ai.limits.model_dump(),
+        "rules": ai.rules.model_dump(),
+    }
+
+
+def normalised(config: ScopeConfig) -> dict[str, Any]:
+    """The scope as it is hashed: defaults filled in, hosts canonical, the expiry in UTC, lists in the order given.
+
+    `ai_targets` is left out when empty, so a scope written before AI targets existed keeps its hash.
+    """
+    result: dict[str, Any] = {
         "engagement_id": config.engagement_id,
         "owner_approval_ref": config.owner_approval_ref,
         "expires_at": config.expires_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -303,6 +532,9 @@ def normalised(config: ScopeConfig) -> dict[str, Any]:
         "max_response_bytes": config.max_response_bytes,
         "follow_redirects": config.follow_redirects,
     }
+    if config.ai_targets:
+        result["ai_targets"] = [_normalised_ai(ai) for ai in config.ai_targets]
+    return result
 
 
 def _location(loc: tuple[Any, ...]) -> str | None:

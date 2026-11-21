@@ -23,6 +23,8 @@ MAX_PARSED_KEYS = 64
 _HEADER_NAME = re.compile(r"[a-z0-9_-]{1,64}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CATEGORY = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+_AI_ID = r"^[a-z0-9][a-z0-9-]{1,39}$"
+_PROBE_SET = r"^[a-z0-9][a-z0-9-]{1,62}$"
 
 Port = Annotated[int, Field(ge=1, le=65535)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -131,6 +133,17 @@ class BodySummary(_Model):
         return value
 
 
+def _check_headers(value: dict[str, list[str]]) -> dict[str, list[str]]:
+    if len(value) > 64:
+        raise ValueError("at most 64 headers")
+    for name, values in value.items():
+        if not _HEADER_NAME.fullmatch(name):
+            raise ValueError("a header name is lower-case letters, digits, - and _, at most 64 characters")
+        if len(values) > 64 or any(len(v) > 4096 for v in values):
+            raise ValueError("a header has at most 64 values of at most 4096 characters")
+    return value
+
+
 class HttpPayload(_Model):
     host: Host
     port: Port
@@ -155,29 +168,83 @@ class HttpPayload(_Model):
     @field_validator("headers")
     @classmethod
     def _headers(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
-        if len(value) > 64:
-            raise ValueError("at most 64 headers")
-        for name, values in value.items():
-            if not _HEADER_NAME.fullmatch(name):
-                raise ValueError("a header name is lower-case letters, digits, - and _, at most 64 characters")
-            if len(values) > 64 or any(len(v) > 4096 for v in values):
-                raise ValueError("a header has at most 64 values of at most 4096 characters")
-        return value
+        return _check_headers(value)
+
+
+# ------------------------------------------------------------------------------ AI-system payloads ----
+class AiMetadataPayload(_Model):
+    host: Host
+    port: Port
+    scheme: Literal["http", "https"]
+    path: str
+    http_status: Annotated[int, Field(ge=100, le=599)] | None
+    headers: dict[str, list[str]]
+    model_ids: Annotated[list[Annotated[str, Field(max_length=128)]], Field(max_length=50)]
+    body: BodySummary | None
+
+    _host = field_validator("host")(_canonical_host)
+
+    @field_validator("headers")
+    @classmethod
+    def _headers(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        return _check_headers(value)
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        try:
+            return canonical_path(value)
+        except ScopeError as exc:
+            raise ValueError(exc.message) from None
+
+
+class AiFlags(_Model):
+    """Structure present in a reply, nothing more. Whether it matters is a human's judgement."""
+
+    contains_html: bool
+    contains_markdown_link: bool
+    contains_code_block: bool
+    contains_url: bool
+
+
+class AiProbePayload(_Model):
+    ai_target_id: Annotated[str, Field(pattern=_AI_ID)]
+    probe_set: Annotated[str, Field(pattern=_PROBE_SET)]
+    probe_index: Annotated[int, Field(ge=0, le=9)]
+    category: Literal[
+        "prompt_injection", "system_prompt_leakage", "sensitive_information_disclosure", "output_handling"
+    ]
+    http_status: Annotated[int, Field(ge=100, le=599)] | None
+    input_tokens: Annotated[int, Field(ge=0, le=1_000_000)] | None
+    output_tokens: Annotated[int, Field(ge=0, le=1_000_000)] | None
+    finish_reason: Annotated[str, Field(max_length=64)] | None
+    output_chars: Annotated[int, Field(ge=0, le=2_000_000)] | None
+    canary_present: bool | None
+    flags: AiFlags | None
+    artifact_sha256: Sha256 | None
 
 
 # -------------------------------------------------------------------------------------- envelope ----
-Payload = DnsPayload | TlsPayload | HttpPayload
+Payload = DnsPayload | TlsPayload | HttpPayload | AiMetadataPayload | AiProbePayload
 _PAYLOADS: dict[str, type[_Model]] = {
     "dns_metadata": DnsPayload,
     "tls_metadata": TlsPayload,
     "http_metadata": HttpPayload,
+    "ai_metadata": AiMetadataPayload,
+    "ai_probe": AiProbePayload,
 }
-_ADAPTER_FOR = {"dns_metadata": "offline_dns", "tls_metadata": "offline_tls", "http_metadata": "offline_http"}
+_ADAPTER_FOR = {
+    "dns_metadata": "offline_dns",
+    "tls_metadata": "offline_tls",
+    "http_metadata": "offline_http",
+    "ai_metadata": "offline_ai",
+    "ai_probe": "offline_ai",
+}
 
 
 class ObservationEnvelope(_Model):
-    adapter: Literal["offline_dns", "offline_tls", "offline_http"]
-    observation_type: Literal["dns_metadata", "tls_metadata", "http_metadata"]
+    adapter: Literal["offline_dns", "offline_tls", "offline_http", "offline_ai"]
+    observation_type: Literal["dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe"]
     target: Target
     normalized_input: Annotated[str, Field(min_length=1, max_length=512)]
     error_status: Annotated[ErrorStatus, Field(strict=False)]
