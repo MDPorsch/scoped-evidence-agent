@@ -314,10 +314,11 @@ def test_a_base_path_of_slash_adds_no_extra_slash_and_a_trailing_slash_is_joined
     ],
 )
 def test_an_endpoint_path_is_canonical_and_a_placeholder_is_a_whole_segment(path: str) -> None:
-    data = api_dict()
-    endpoint(data)["path"] = path
-    endpoint(data)["params"] = {"id": ["x1"]}
-    refused(data, ErrorCode.SCOPE_006)
+    for params in ({"id": ["x1"]}, {}):  # with no list at all, only the path rules can refuse it
+        data = api_dict()
+        endpoint(data)["path"] = path
+        endpoint(data)["params"] = params
+        refused(data, ErrorCode.SCOPE_006)
 
 
 def test_a_path_may_end_in_a_slash_and_a_placeholder_may_be_the_last_segment() -> None:
