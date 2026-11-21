@@ -24,7 +24,8 @@ _NAME = re.compile(r"[a-z0-9][a-z0-9-]{2,39}")
 _TLS_KEY = re.compile(r"([^:]+):([0-9]{1,5})")
 _URL_KEY = re.compile(r"(https?)://([^/:]+):([0-9]{1,5})(/.*)")
 _PROBE_KEY = re.compile(r"probe:([a-z0-9][a-z0-9-]{1,39}):([a-z0-9][a-z0-9-]{1,62}):([0-9])")
-_SECTIONS = ("dns", "tls", "http", "ai")
+_API_KEY = re.compile(r"([a-z0-9][a-z0-9-]{1,39})\|(GET|HEAD|OPTIONS)\|([^|]+)(?:\|([^|]+))?")
+_SECTIONS = ("dns", "tls", "http", "ai", "api")
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class Pack:
     tls: dict[str, dict[str, Any]]
     http: dict[str, dict[str, Any]]
     ai: dict[str, dict[str, Any]]
+    api: dict[str, dict[str, Any]]
 
 
 def _bad(message: str) -> PackError:
@@ -66,6 +68,18 @@ def _check_url_key(key: str, where: str) -> None:
         raise _bad(f"{where}: the path is not an exact canonical path") from None
 
 
+def _check_api_key(key: str, where: str) -> None:
+    match = _API_KEY.fullmatch(key)
+    if match is None:
+        raise _bad(f"{where}: an api key is principal|METHOD|scheme://host:port/path, and for OPTIONS |origin as well")
+    _principal, method, url, origin = match.groups()
+    _check_url_key(url, where)
+    if (method == "OPTIONS") != (origin is not None):
+        raise _bad(f"{where}: an OPTIONS key ends with |origin, and no other method has one")
+    if origin is not None and re.fullmatch(r"https://[a-z0-9.-]+(?::[0-9]{1,5})?", origin) is None:
+        raise _bad(f"{where}: the origin is https://host or https://host:port")
+
+
 def _check_key(section: str, key: str) -> None:
     where = f"{section} key {safe_text(key, 60)!r}"
     if section == "dns":
@@ -76,6 +90,8 @@ def _check_key(section: str, key: str) -> None:
             raise _bad(f"{where}: a key is host:port")
         _host(match.group(1), where)
         _port(match.group(2), where)
+    elif section == "api":
+        _check_api_key(key, where)
     elif section == "ai" and key.startswith("probe:"):
         if _PROBE_KEY.fullmatch(key) is None:
             raise _bad(f"{where}: a probe key is probe:<ai target id>:<probe set>:<index 0-9>")

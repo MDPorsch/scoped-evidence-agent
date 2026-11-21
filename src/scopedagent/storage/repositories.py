@@ -41,7 +41,7 @@ from scopedagent.errors import ErrorCode, PolicyError, StateError
 from scopedagent.ids import new_id
 from scopedagent.logs import safe_text
 from scopedagent.pipeline.redact import redact_text
-from scopedagent.policy.scope import LoadedScope, check_not_expired
+from scopedagent.policy.scope import LoadedScope, check_not_expired, plan_api_target
 from scopedagent.storage.audit import append_event
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -112,6 +112,20 @@ def register_engagement(session: Session, loaded: LoadedScope, *, now: datetime)
                 verified_scope=True,
                 kind="ai",
                 ai_target_id=ai.id,
+            )
+        )
+    for api in loaded.config.api_targets:
+        paths = list(dict.fromkeys(op.path for op in plan_api_target(api) if op.path))  # the only paths it may be sent
+        session.add(
+            Target(
+                id=new_id(),
+                engagement_id=engagement.id,
+                host_canonical=api.host,
+                scheme=api.scheme,
+                port=api.port,
+                allowed_path_prefixes=paths,
+                verified_scope=True,
+                kind="api",
             )
         )
     session.flush()

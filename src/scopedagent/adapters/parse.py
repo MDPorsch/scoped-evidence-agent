@@ -7,6 +7,7 @@ cannot travel into a stored field.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -174,3 +175,141 @@ def ai_flags(text: str) -> dict[str, bool]:
         "contains_code_block": "```" in text,
         "contains_url": _URL.search(text) is not None,
     }
+
+
+# --------------------------------------------------------------------------------------------- API evidence ----
+_OPERATION_VERBS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
+MAX_OPERATIONS = 10_000
+
+
+def api_spec_summary(text: str) -> dict[str, Any]:
+    """An OpenAPI document as inventory (D-E49): the version, how many operations it lists, the server URLs as data, the
+    names of its security schemes and how many operations declare no security. Nothing in it is ever contacted."""
+    summary = openapi_summary(text)
+    doc = json.loads(text)  # parsed once already by openapi_summary, so it is valid, shallow JSON here
+    paths = doc.get("paths") if isinstance(doc.get("paths"), dict) else {}
+    top = doc.get("security")
+    operations = unsecured = 0
+    for item in list(paths.values())[:MAX_OPERATIONS]:
+        if not isinstance(item, dict):
+            continue
+        for verb in _OPERATION_VERBS:
+            operation = item.get(verb)
+            if not isinstance(operation, dict) or operations >= MAX_OPERATIONS:
+                continue
+            operations += 1
+            effective = operation.get("security", top)
+            unsecured += 1 if effective is None or effective == [] else 0
+    return _bound({**summary, "operation_count": operations, "operations_without_security": unsecured})
+
+
+MAX_SHAPE_ENTRIES = 200
+MAX_SHAPE_NODES = 50_000
+MAX_SHAPE_DEPTH = 12
+MANY_KEYS = 16  # an object with more keys than this is a map: its keys are data, so they are not recorded
+_KEY = re.compile(r"[A-Za-z0-9_.-]{1,40}")
+_CREDENTIAL_KEYS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
+_STACK_KEYS = frozenset({"stacktrace", "stack_trace", "traceback", "trace"})
+_STACK_TEXT = re.compile(
+    r"Traceback \(most recent call last\)"
+    r"|\bat [A-Za-z_$][\w$.<>]*\([A-Za-z0-9_$.]+:\d+\)"
+    r"|\bFile \"[^\"\n]{1,200}\", line \d+"
+    r"|\.java:\d+\)"
+    r"|goroutine \d+ \["
+)
+_DEBUG_TEXT = re.compile(r"[\"']?\bdebug[\"']?\s*[:=]\s*(?:true|1)\b|\bDEBUG\s*=\s*True\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Shape:
+    """What a JSON body is made of, never what it says: field paths with a type and a length (D-E52)."""
+
+    status: str  # ok, partial, not_json or none
+    entries: tuple[tuple[str, str, int | None], ...]
+    digest: str | None
+    credential_keys: bool
+    stack_keys: bool
+    debug_keys: bool
+
+
+def _json_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "string" if isinstance(value, str) else "array" if isinstance(value, list) else "object"
+
+
+def json_shape(text: str | None) -> Shape:
+    """The shape of a JSON body: `$.items[].id` is a string of length 12, and so on. A key that is not a short plain name
+    is recorded as `?`, and the keys of a map (more than 16) as `{key}`, so a body cannot smuggle a sentence or an id
+    into a stored field."""
+    if text is None:
+        return Shape("none", (), None, False, False, False)
+    try:
+        doc = _load(text, "body")
+    except ParseFailure:
+        return Shape("not_json", (), None, False, False, False)
+    seen: dict[tuple[str, str], int | None] = {}
+    flags = {"credential": False, "stack": False, "debug": False}
+    partial = False
+    nodes = 0
+    stack: list[tuple[Any, str, int]] = [(doc, "$", 1)]
+    while stack:
+        node, path, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_SHAPE_NODES:
+            partial = True
+            break
+        kind = _json_type(node)
+        length = len(node) if isinstance(node, (str, list)) else None
+        key = (path, kind)
+        previous = seen.get(key)
+        seen[key] = length if previous is None else max(previous, length or 0)
+        if depth >= MAX_SHAPE_DEPTH:
+            partial = partial or isinstance(node, (dict, list)) and bool(node)
+            continue
+        if isinstance(node, dict):
+            collapse = len(node) > MANY_KEYS
+            for name, child in node.items():
+                lowered = name.lower()
+                flags["credential"] |= lowered in _CREDENTIAL_KEYS
+                flags["stack"] |= lowered in _STACK_KEYS
+                flags["debug"] |= lowered == "debug"
+                label = "{key}" if collapse else (name if _KEY.fullmatch(name) else "?")
+                stack.append((child, f"{path}.{label}", depth + 1))
+        elif isinstance(node, list):
+            stack.extend((child, f"{path}[]", depth + 1) for child in node[:50])
+    ordered = sorted(seen.items())
+    if len(ordered) > MAX_SHAPE_ENTRIES:
+        ordered, partial = ordered[:MAX_SHAPE_ENTRIES], True
+    entries = tuple((path, kind, length) for (path, kind), length in ordered)
+    structure = json.dumps([[path, kind] for path, kind, _ in entries], separators=(",", ":"))
+    digest = hashlib.sha256(structure.encode("utf-8")).hexdigest()
+    return Shape("partial" if partial else "ok", entries, digest, flags["credential"], flags["stack"], flags["debug"])
+
+
+def api_markers(text: str | None, shape: Shape) -> dict[str, bool]:
+    """Structure a reviewer wants to look at, as three yes/no flags. Simple pattern matches, never a judgement."""
+    body = text or ""
+    return {
+        "has_stack_trace_markers": shape.stack_keys or _STACK_TEXT.search(body) is not None,
+        "has_debug_markers": shape.debug_keys or _DEBUG_TEXT.search(body) is not None,
+        "echoes_request_headers": shape.credential_keys,
+    }
+
+
+_ALLOW_TOKEN = re.compile(r"[A-Z]{3,10}")
+
+
+def allow_methods(values: list[str]) -> list[str]:
+    """The methods an `Allow` header names (upper-case tokens only, at most 12, in order, once each)."""
+    seen: list[str] = []
+    for value in values:
+        for token in value.split(","):
+            token = token.strip()
+            if _ALLOW_TOKEN.fullmatch(token) and token not in seen and len(seen) < 12:
+                seen.append(token)
+    return seen

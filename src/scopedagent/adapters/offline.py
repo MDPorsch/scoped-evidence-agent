@@ -13,6 +13,7 @@ import binascii
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,7 +24,11 @@ from scopedagent.adapters.pack import Pack
 from scopedagent.adapters.parse import (
     ParseFailure,
     ai_flags,
+    allow_methods,
+    api_markers,
+    api_spec_summary,
     chat_completion,
+    json_shape,
     models_summary,
     openapi_summary,
     robots_summary,
@@ -57,6 +62,9 @@ _ADAPTER = {
     "http_metadata": "offline_http",
     "ai_metadata": "offline_ai",
     "ai_probe": "offline_ai",
+    "api_spec": "offline_api",
+    "api_read": "offline_api",
+    "api_options": "offline_api",
 }
 
 
@@ -84,6 +92,9 @@ def normalized_input(op: PlannedOperation) -> str:
         return f"tls {op.host}:{op.port}"
     if op.kind == "ai_probe":
         return f"PROBE {op.target_id} {op.probe_set} {op.probe_index}"
+    if op.kind.startswith("api_"):
+        line = f"API {op.principal} {op.method} {op.scheme}://{op.host}:{op.port}{op.path}"
+        return f"{line} origin={op.origin}" if op.origin else line
     return f"GET {op.scheme}://{op.host}:{op.port}{op.path}"
 
 
@@ -108,6 +119,8 @@ def _error_payload(op: PlannedOperation, status: ErrorStatus) -> dict[str, Any]:
         return {"host": op.host, "port": op.port, "status": tls, "tls_version": None, "certificate": None}
     if op.kind == "ai_probe":
         return _probe_payload(op, http_status=None)
+    if op.kind.startswith("api_"):
+        return _api_payload(op)
     base = {
         "host": op.host,
         "port": op.port,
@@ -120,6 +133,44 @@ def _error_payload(op: PlannedOperation, status: ErrorStatus) -> dict[str, Any]:
     if op.kind == "ai_metadata":
         return {**base, "model_ids": []}
     return {**base, "method": "GET", "redirect_location": None}
+
+
+def _api_payload(op: PlannedOperation, **facts: Any) -> dict[str, Any]:
+    """The payload of an API operation that has no answer, with what an answer adds laid over it."""
+    payload: dict[str, Any] = {
+        "api_target_id": op.target_id,
+        "host": op.host,
+        "port": op.port,
+        "scheme": op.scheme,
+        "path": op.path,
+    }
+    if op.kind == "api_spec":
+        payload |= {"http_status": None, "headers": {}, "body": None}
+    elif op.kind == "api_read":
+        payload |= {
+            "endpoint_id": op.endpoint_id,
+            "principal": op.principal,
+            "method": op.method,
+            "params": dict(op.params),
+            "http_status": None,
+            "headers": {},
+            "content_type": None,
+            "size_bytes": None,
+            "truncated": False,
+            "shape_status": "none",
+            "shape": [],
+            "shape_digest": None,
+            "flags": None,
+        }
+    else:
+        payload |= {
+            "endpoint_id": op.endpoint_id,
+            "origin": op.origin,
+            "http_status": None,
+            "allow": [],
+            "cors": None,
+        }
+    return payload | facts
 
 
 def error_result(op: PlannedOperation, status: ErrorStatus) -> AdapterResult:
@@ -518,13 +569,133 @@ class OfflineAiProbe:
         return AdapterResult(envelope, source, artifact, "text/plain" if artifact else None, "redacted", redactions)
 
 
+# ------------------------------------------------------------------------------------------- API adapters ----
+def _api_key(op: PlannedOperation) -> str:
+    key = f"{op.principal}|{op.method}|{op.scheme}://{op.host}:{op.port}{op.path}"
+    return f"{key}|{op.origin}" if op.origin else key
+
+
+class _ApiAdapter:
+    """What the three API adapters share: a pack entry per principal and request, and a limit per API target."""
+
+    def __init__(self, pack: Pack, limits: Mapping[str, int]) -> None:
+        self._pack, self._limits = pack, limits
+
+    def _exchange(self, op: PlannedOperation) -> _Exchange | AdapterResult:
+        entry = self._pack.api.get(_api_key(op))
+        if entry is None:
+            return error_result(op, ErrorStatus.ADAPTER_ERROR)
+        if (declared := _declared_error(entry)) is not None:
+            return error_result(op, declared)
+        try:
+            return _exchange(entry, max_bytes=self._limits[op.target_id or ""], own_host=op.host)
+        except _Failure as failure:
+            return error_result(op, failure.status)
+
+    @staticmethod
+    def _result(
+        op: PlannedOperation,
+        status: ErrorStatus,
+        payload: dict[str, Any],
+        source: bytes,
+        redactions: int,
+        artifact: tuple[bytes | None, str | None, str] = (None, None, "redacted"),
+    ) -> AdapterResult:
+        try:
+            envelope = _envelope(op, status, payload)
+        except ValidationError:
+            return error_result(op, ErrorStatus.PARSE_ERROR)
+        return AdapterResult(envelope, source, artifact[0], artifact[1], artifact[2], redactions)  # type: ignore[arg-type]
+
+
+class OfflineApiSpec(_ApiAdapter):
+    name, operation = "offline_api", "api_spec"
+
+    async def collect(self, operation: PlannedOperation) -> AdapterResult:
+        ex = self._exchange(operation)
+        if isinstance(ex, AdapterResult):
+            return ex
+        outcome, parsed = ErrorStatus.SIZE_LIMIT if ex.truncated else ErrorStatus.OK, None
+        if ex.redacted_text is not None and not ex.truncated:
+            try:
+                parsed = api_spec_summary(ex.redacted_text)
+            except ParseFailure:
+                outcome = ErrorStatus.PARSE_ERROR
+        payload = _api_payload(
+            operation, http_status=ex.status, headers=ex.headers, body=_body_summary(ex, parsed)
+        )
+        return self._result(
+            operation, outcome, payload, ex.source, ex.redactions, (ex.artifact, ex.artifact_mime, ex.artifact_status)
+        )
+
+
+class OfflineApiRead(_ApiAdapter):
+    """One call as one principal. The body is read in memory to take its shape and three flags, and is then dropped:
+    no artifact is stored and the source hash covers the shape, never a value (D-E52)."""
+
+    name, operation = "offline_api", "api_read"
+
+    async def collect(self, operation: PlannedOperation) -> AdapterResult:
+        ex = self._exchange(operation)
+        if isinstance(ex, AdapterResult):
+            return ex
+        outcome = ErrorStatus.SIZE_LIMIT if ex.truncated else ErrorStatus.OK
+        text = None if ex.truncated or operation.method == "HEAD" else ex.redacted_text
+        shape = json_shape(text)
+        flags = api_markers(text, shape)
+        entries = [{"path": p, "type": k, "length": n} for p, k, n in shape.entries]
+        payload = _api_payload(
+            operation,
+            http_status=ex.status,
+            headers=ex.headers,
+            content_type=ex.content_type[:255] if ex.content_type else None,
+            size_bytes=ex.size_bytes,
+            truncated=ex.truncated,
+            shape_status=shape.status,
+            shape=entries,
+            shape_digest=shape.digest,
+            flags=flags,
+        )
+        source = _canon(
+            {
+                "status": ex.status,
+                "headers": ex.headers,
+                "size": ex.size_bytes,
+                "shape_status": shape.status,
+                "shape_digest": shape.digest,
+                "flags": flags,
+            }
+        )
+        return self._result(operation, outcome, payload, source, ex.redactions)
+
+
+class OfflineApiOptions(_ApiAdapter):
+    name, operation = "offline_api", "api_options"
+
+    async def collect(self, operation: PlannedOperation) -> AdapterResult:
+        ex = self._exchange(operation)
+        if isinstance(ex, AdapterResult):
+            return ex
+        names = ("access-control-allow-origin", "access-control-allow-credentials", "access-control-allow-methods", "access-control-allow-headers")
+        found = {n: (ex.headers.get(n) or [None])[0] for n in names}
+        cors = None if all(v is None for v in found.values()) else dict(zip(("allow_origin", "allow_credentials", "allow_methods", "allow_headers"), found.values(), strict=True))
+        allow = allow_methods(ex.headers.get("allow", []))
+        payload = _api_payload(operation, http_status=ex.status, allow=allow, cors=cors)
+        source = _canon({"status": ex.status, "allow": allow, "cors": cors})
+        return self._result(operation, ErrorStatus.OK, payload, source, ex.redactions)
+
+
 def build_adapters(pack: Pack, config: ScopeConfig) -> dict[str, Adapter]:
     """One adapter per operation kind, all reading the same pack."""
     limit = config.max_response_bytes
+    api_limits = {api.id: min(limit, api.limits.max_response_bytes) for api in config.api_targets}  # the stricter wins
     return {
         "dns_metadata": OfflineDns(pack),
         "tls_metadata": OfflineTls(pack),
         "http_metadata": OfflineHttp(pack, limit),
         "ai_metadata": OfflineAiMetadata(pack, limit),
         "ai_probe": OfflineAiProbe(pack, config, limit),
+        "api_spec": OfflineApiSpec(pack, api_limits),
+        "api_read": OfflineApiRead(pack, api_limits),
+        "api_options": OfflineApiOptions(pack, api_limits),
     }

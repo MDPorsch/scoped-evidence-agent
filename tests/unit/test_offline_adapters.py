@@ -53,7 +53,14 @@ CERT: dict[str, Any] = {
 
 
 def pack_of(**sections: dict[str, dict[str, Any]]) -> Pack:
-    return Pack("t", sections.get("dns", {}), sections.get("tls", {}), sections.get("http", {}), sections.get("ai", {}))
+    return Pack(
+        "t",
+        sections.get("dns", {}),
+        sections.get("tls", {}),
+        sections.get("http", {}),
+        sections.get("ai", {}),
+        sections.get("api", {}),
+    )
 
 
 def http_entry(**fields: Any) -> dict[str, Any]:
@@ -415,7 +422,16 @@ def test_the_normalised_input_names_the_request() -> None:
 def test_one_adapter_per_operation_kind() -> None:
     config = parse_scope(scope_text(AI_PACK), now=NOW).config
     adapters = build_adapters(pack_of(), config)
-    assert set(adapters) == {"dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe"}
+    assert set(adapters) == {
+        "dns_metadata",
+        "tls_metadata",
+        "http_metadata",
+        "ai_metadata",
+        "ai_probe",
+        "api_spec",
+        "api_read",
+        "api_options",
+    }
     assert all(adapters[kind].operation == kind for kind in adapters)
 
 

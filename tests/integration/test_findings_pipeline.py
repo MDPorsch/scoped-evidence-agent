@@ -441,7 +441,7 @@ def test_a_database_made_by_the_previous_revision_upgrades_and_keeps_its_data(tm
             "VALUES ('r1','e1','alice','offline','DRAFTED',12,5,1,'2026-11-20T00:00:00.000000Z');"
             "INSERT INTO finding_drafts VALUES ('f1','r1','An old title','tls-misconfiguration',0.5,'DRAFT',NULL,1,'2026-11-20T00:00:00.000000Z');"
         )
-    assert upgrade_database(data_dir) == "0003"
+    assert upgrade_database(data_dir) == "0004"
     db = open_database(data_dir)
     try:
         with db.begin() as session:
@@ -477,7 +477,7 @@ def test_a_database_at_revision_0002_gains_the_model_tables_and_keeps_its_data(t
         )
         before = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"model_calls", "finding_wordings"}.isdisjoint(before)
-    assert upgrade_database(data_dir) == "0003"
+    assert upgrade_database(data_dir) == "0004"
     db = open_database(data_dir)
     try:
         with db.begin() as session:
@@ -496,10 +496,10 @@ def test_a_database_at_revision_0002_gains_the_model_tables_and_keeps_its_data(t
         db.close()
 
 
-def test_the_head_revision_is_0003_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
+def test_the_head_revision_is_0004_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
     from scopedagent.storage.database import HEAD_REVISION  # noqa: PLC0415
 
-    assert HEAD_REVISION == "0003"
+    assert HEAD_REVISION == "0004"
     data_dir = DataDir(tmp_path / "data")
     upgrade_database(data_dir)
     with raw_connection(data_dir.db_path) as connection:
