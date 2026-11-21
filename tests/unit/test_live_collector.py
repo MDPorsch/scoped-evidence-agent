@@ -316,6 +316,13 @@ def test_the_default_context_verifies_the_name_and_the_chain_and_wants_tls_12() 
     assert unverified.verify_mode is ssl.CERT_NONE and unverified.minimum_version is ssl.TLSVersion.TLSv1_2
 
 
+def test_the_verifying_context_is_the_standard_library_default_with_strict_checking_and_the_system_trust() -> None:
+    """Built by `ssl.create_default_context()`: a bare `SSLContext` has the same verify mode but no trust and no strictness."""
+    context = collector._context(verify=True)
+    assert ssl.VERIFY_X509_STRICT in context.verify_flags and ssl.VERIFY_X509_PARTIAL_CHAIN in context.verify_flags
+    assert ssl.VERIFY_X509_STRICT not in collector._context(verify=False).verify_flags
+
+
 # ----------------------------------------------------------------------------------------- tls_metadata ----
 def test_the_certificate_facts_are_recorded_even_when_the_certificate_does_not_verify(tmp_path: Path) -> None:
     cert, key, certificate = make_server_certificate(tmp_path, None, names=(HOST, "www.example.invalid"))  # self-signed

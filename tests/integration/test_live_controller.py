@@ -633,6 +633,27 @@ def test_a_target_that_echoes_the_credential_back_fails_the_run_and_stores_nothi
     assert KEY not in str(caught.value) and count(env2, "runs") == 0 and KEY not in everything_stored(env2[0], env2[2])
 
 
+def test_a_proof_that_carries_a_credential_is_refused_cleanly_and_nothing_is_stored(env2: Any) -> None:
+    @dataclass
+    class Leaky(Container):
+        def exchange_proof(self, allow: list[AllowedPair]) -> Proof:
+            proof = super().exchange_proof(allow)
+            first = proof.checks[0].model_copy(update={"detail": f"saw {KEY}"})
+            return Proof(allowed=proof.allowed, checks=[first, *proof.checks[1:]])
+
+    server, close = serve(lambda r: MODELS)
+    container = Leaky(server.port, environ={"BOT_KEY": KEY})
+    try:
+        with pytest.raises(LiveFailed) as caught:
+            go(env2, ai_scope(server.port), container, credentials={"support-bot": "BOT_KEY"}, environ={"BOT_KEY": KEY})
+    finally:
+        close()
+    assert caught.value.code is ErrorCode.LIVE_004 and caught.value.exit_code == 2
+    assert "the isolation proof" in str(caught.value) and KEY not in str(caught.value)
+    assert container.aborted == 1 and container.job is None and server.connections == 0
+    assert count(env2, "runs") == 0 and count(env2, "live_runs") == 0 and KEY not in everything_stored(env2[0], env2[2])
+
+
 def test_the_leak_guard_also_catches_an_encoded_echo(env2: Any) -> None:
     import base64  # noqa: PLC0415
 

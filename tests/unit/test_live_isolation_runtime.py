@@ -422,6 +422,10 @@ def test_a_container_that_says_nothing_is_given_up_on(process: Any, monkeypatch:
         DockerSession(process(""), Path("/o"), "n").exchange_proof([V4])
 
 
+def test_the_wait_for_the_proof_is_bounded_to_a_minute_or_two() -> None:
+    assert 1 <= runtime.PROOF_TIMEOUT_SECONDS <= 120
+
+
 def test_a_proof_that_is_too_long_is_refused(process: Any) -> None:
     with pytest.raises(LiveFailed, match="too long"):
         DockerSession(process("x" * (runtime.MAX_PROOF_BYTES + 10) + "\n"), Path("/o"), "n").exchange_proof([V4])

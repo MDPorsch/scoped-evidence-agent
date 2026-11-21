@@ -25,7 +25,7 @@ from scopedagent.domain.models import LiveRun
 from scopedagent.domain.outcome import ErrorStatus
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, LiveFailed, LiveRefused
-from scopedagent.live.leakguard import LeakGuard
+from scopedagent.live.leakguard import LeakGuard, SecretLeak
 from scopedagent.live.outputcheck import accept_results
 from scopedagent.live.protocol import ENV_NAME, AllowedPair, Job, JobOperation, Proof, ProofCheck
 from scopedagent.live.resolver import Lookup, Resolution, resolve_hosts, system_lookup
@@ -275,6 +275,9 @@ def run_live(
                 proof = container.exchange_proof(allow)
                 verify_proof(proof, allow)
                 guard.check(proof.model_dump_json(), where="the isolation proof")
+            except SecretLeak as exc:
+                container.abort()
+                raise LiveFailed(ErrorCode.LIVE_004, str(exc)) from None
             except BaseException:
                 container.abort()
                 raise

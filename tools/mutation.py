@@ -1595,7 +1595,8 @@ M.update({
     "live_addr_embedding_ipv6_removed": [(LAD, '        ("::ffff:0:0/96", "an IPv4-mapped IPv6 address (it exists to reach an IPv4 host)"),\n', "")],
     "live_addr_zone_ids_accepted": [(LAD, '    if "%" in text:', "    if False:")],
     "live_addr_ipv6_loopback_treated_as_never": [(LAD, "    if address == _IPV6_LOOPBACK:\n        return None", "    if False:\n        return None")],
-    "live_addr_listed_range_of_other_family_matches": [(LAD, "if address.version == net.version and address in net:\n            return address", "if address in net:\n            return address")],
+    # (live_addr_listed_range_of_other_family_matches was removed: `in` is already False across address families,
+    #  so the version guard is equivalent code.)
     "live_addr_never_overlap_unchecked": [(LAD, "if net.version == never.version and net.overlaps(never):", "if False:")],
     "live_addr_network_limit_off_by_one": [(LAD, "MAX_NETWORKS: Final = 32", "MAX_NETWORKS: Final = 33")],
     "live_addr_a_host_needs_one_good_address_only": [(LAD, "    for text in addresses:\n        address = check_address(text, networks)\n", "    for text in addresses[:1]:\n        address = check_address(text, networks)\n")],
@@ -1640,6 +1641,8 @@ M.update({
     "live_short_credential_accepted": [(LCO, "if len(value) < 8:", "if False:")],
     "live_unset_credential_accepted": [(LCO, "        if not value:\n            raise LiveRefused", "        if False:\n            raise LiveRefused")],
     "live_leak_guard_not_applied_to_the_proof": [(LCO, '                guard.check(proof.model_dump_json(), where="the isolation proof")\n', "")],
+    "live_proof_leak_escapes_as_a_raw_exception": [(LCO, "            except SecretLeak as exc:\n                container.abort()\n                raise LiveFailed(ErrorCode.LIVE_004, str(exc)) from None\n", "")],
+    "live_proof_leak_leaves_the_container_running": [(LCO, "            except SecretLeak as exc:\n                container.abort()\n", "            except SecretLeak as exc:\n")],
     "live_collector_exit_status_ignored": [(LCO, "            if code != 0:\n                raise LiveFailed(ErrorCode.LIVE_004", "            if False:\n                raise LiveFailed(ErrorCode.LIVE_004")],
     "live_gates_run_after_the_work": [(LCO, "    check_live_authorization(loaded, now=request.now, acknowledged=request.acknowledged)\n", "")],
     "live_image_not_validated": [(LCO, "    validate_image(request.image)\n    check_run_allowed", "    check_run_allowed")],
@@ -1660,7 +1663,7 @@ M.update({
     # ---- the collector -------------------------------------------------------------------------------------------------
     "live_collector_peer_not_confirmed": [(LCL, "        if not _same_address(str(raw.getpeername()[0]), op.address):", "        if False:")],
     "live_collector_old_tls_allowed": [(LCL, "    context.minimum_version = ssl.TLSVersion.TLSv1_2\n    if not verify:", "    context.minimum_version = ssl.TLSVersion.TLSv1\n    if not verify:")],
-    "live_collector_never_verifies": [(LCL, "    context = ssl.create_default_context() if verify else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)", "    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)")],
+    "live_collector_verifying_context_is_a_bare_one": [(LCL, "    context = ssl.create_default_context() if verify else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)", "    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)")],
     "live_collector_hostname_not_checked": [(LCL, "    context = ssl.create_default_context() if verify else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\n", "    context = ssl.create_default_context() if verify else ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\n    context.check_hostname = False\n")],
     "live_collector_sends_the_credential_unasked": [(LCL, "    if secret:\n        lines.append", "    if True:\n        lines.append")],
     "live_collector_body_not_capped": [(LCL, "limit = job.max_response_bytes + 1", "limit = job.max_response_bytes * 1000")],
