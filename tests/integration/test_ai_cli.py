@@ -507,3 +507,19 @@ def test_a_wording_that_contains_the_key_is_dropped_by_the_command_and_never_sto
     assert "kept as the rule wrote them: 77" in out.output
     first = invoke("findings", "list", run_id, "--data-dir", str(data_dir)).output.splitlines()[1].split()[0]
     assert KEY not in invoke("findings", "show", first, "--data-dir", str(data_dir)).output
+
+
+def test_run_says_nothing_about_the_model_once_it_has_been_disabled(data_dir: Path) -> None:
+    invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
+    invoke("ai", "disable", "--data-dir", str(data_dir))
+    assert config_path(DataDir(data_dir).root).exists()  # the file is kept; only the switch is off
+    out = invoke(
+        "run",
+        "--scope",
+        str(SCOPE_FILES["misconfigured"]),
+        "--fixture",
+        str(FIXTURES / "web_responses" / "misconfigured.yaml"),
+        "--data-dir",
+        str(data_dir),
+    )
+    assert out.exit_code == 3 and "AI wording" not in out.output
