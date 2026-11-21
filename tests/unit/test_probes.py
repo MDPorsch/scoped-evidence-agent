@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import pytest
+
 from scopedagent.policy.probes import PROBE_CATEGORIES, PROBE_SETS, ProbeSet
 
 pytestmark = pytest.mark.milestone("M1")

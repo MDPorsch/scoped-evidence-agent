@@ -62,6 +62,19 @@ generated inputs, `negative/` the "this must be impossible" checks.
 | AI-13 | An AI observation cannot be filed under a web target and a web observation cannot be filed under an AI target, in the application and in the database | `integration/test_ai_targets_storage.py` | **Covered** |
 | AI-14 | A scope without AI targets keeps its hash | `unit/test_scope_schema.py`, `unit/test_scope_ai_targets.py` | **Covered** |
 
+## Validation steps (D-E58, D-E59), built with the correlator in M3
+
+| ID | Invariant | Status |
+|---|---|---|
+| VS-01 | A step whose kind is not on the closed list, or whose intrusiveness does not match its kind, is dropped and reported | **Planned (M3)** |
+| VS-02 | A step naming a host, port, path, origin or probe that is not in the scope is dropped (a port 80 step with no port 80 in the scope) | **Planned (M3)** |
+| VS-03 | No step contains a shell metacharacter, `-k`/`--insecure`, a body flag, a method other than GET, HEAD or OPTIONS, or a credential; checked over every rule's output and by Hypothesis over target-derived strings | **Planned (M3)** |
+| VS-04 | A value that came from a target appears only as quoted data and never in `action` or `example_invocation` (poisoned fixture) | **Planned (M3)** |
+| VS-05 | A draft has at most 8 steps, each at most 400 characters, each citing an observation of its own run, each with both branches | **Planned (M3)** |
+| VS-06 | A dropped step is reported in `validation_steps_dropped` with its rule; nothing disappears silently | **Planned (M3)** |
+| VS-07 | The tool never runs a validation step in offline mode (no socket opens: the global guard) | **Planned (M3)** |
+| VS-08 | Mutation check over the rule catalogue and the step checker | **Planned (M3)** |
+
 ## What this table does not say
 
 A *covered* case has tests; it is not a proof. Mutation testing (`tools/mutation.py`) checks that the tests notice a deliberate
