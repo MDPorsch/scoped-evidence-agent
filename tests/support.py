@@ -1,0 +1,142 @@
+"""Shared test helpers. No hidden clock: every call that needs the time is given one."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "fixtures"
+NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+
+PACKS = ("healthy", "misconfigured", "poisoned")
+SCOPE_FILES = {name: FIXTURES / "approved_scope" / f"lab-{name}.yaml" for name in PACKS}
+
+
+def scope_text(name: str = "healthy") -> str:
+    return SCOPE_FILES[name].read_text(encoding="utf-8")
+
+
+def scope_dict(name: str = "healthy") -> dict[str, Any]:
+    loaded: dict[str, Any] = yaml.safe_load(scope_text(name))
+    return loaded
+
+
+def dump(data: Any) -> str:
+    """YAML text for a scope dict. A str that looks like a timestamp is quoted by the dumper."""
+    return yaml.safe_dump(data, sort_keys=False)
+
+
+def golden(name: str) -> list[dict[str, Any]]:
+    import json  # noqa: PLC0415
+
+    loaded: list[dict[str, Any]] = json.loads((FIXTURES / "expected_observations" / f"{name}.json").read_text("utf-8"))
+    return loaded
+
+
+# ------------------------------------------------------------------------------ database helpers ----
+STAMP = "%Y-%m-%dT%H:%M:%S.%fZ"  # the stored form of every timestamp (part of the schema contract)
+
+
+def stamp(moment: datetime = NOW) -> str:
+    return moment.astimezone(UTC).strftime(STAMP)
+
+
+def sql_insert(session: Any, table: str, **columns: Any) -> None:
+    from sqlalchemy import text  # noqa: PLC0415
+
+    names = ", ".join(columns)
+    marks = ", ".join(f":{name}" for name in columns)
+    session.execute(text(f"INSERT INTO {table} ({names}) VALUES ({marks})"), columns)  # noqa: S608 - test helper, fixed names
+
+
+def seed(session: Any, **overrides: Any) -> dict[str, str]:
+    """One engagement, one target, one run: the smallest valid graph, written with raw SQL."""
+    ids = {"engagement": "e1", "target": "t1", "run": "r1"}
+    sql_insert(
+        session,
+        "engagements",
+        id="e1",
+        label="lab",
+        owner_approval_ref="local-lab-consent",
+        scope_sha256="a" * 64,
+        scope_json="{}",
+        expires_at=stamp(),
+        created_at=stamp(),
+        status="active",
+    )
+    sql_insert(
+        session,
+        "targets",
+        id="t1",
+        engagement_id="e1",
+        host_canonical="lab.example.invalid",
+        scheme="https",
+        port=443,
+        allowed_path_prefixes="[]",
+        verified_scope=1,
+    )
+    run: dict[str, Any] = {
+        "id": "r1",
+        "engagement_id": "e1",
+        "created_by": "alice",
+        "mode": "offline",
+        "state": "CREATED",
+        "total_budget": 12,
+        "budget_spent": 0,
+        "attempt": 1,
+        "created_at": stamp(),
+    }
+    run.update(overrides)
+    sql_insert(session, "runs", **run)
+    return ids
+
+
+# ------------------------------------------------------------------------------ service helpers ----
+def make_database(tmp_path: Path) -> Any:
+    from scopedagent.storage.database import DataDir, open_database, upgrade_database  # noqa: PLC0415
+
+    data_dir = DataDir(tmp_path / "data")
+    upgrade_database(data_dir)
+    return open_database(data_dir)
+
+
+def healthy_loaded() -> Any:
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+
+    return parse_scope(scope_text("healthy"), now=NOW)
+
+
+def run_in_state(db: Any, state: str, *, scope: str = "healthy") -> str:
+    """Create an engagement and a run and walk it, as a worker, to `state`. Returns the run id."""
+    from scopedagent.domain.state_machine import Actor, ActorType, RunState  # noqa: PLC0415
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+    from scopedagent.storage.repositories import create_run, register_engagement, transition_run  # noqa: PLC0415
+
+    worker = Actor(ActorType.WORKER, "worker-1")
+    human = Actor(ActorType.HUMAN, "alice")
+    path = [
+        RunState.SCOPE_VALIDATED,
+        RunState.QUEUED,
+        RunState.COLLECTING,
+        RunState.CORRELATING,
+        RunState.DRAFTED,
+        RunState.HUMAN_REVIEW,
+        RunState.EXPORTED,
+    ]
+    with db.begin() as session:
+        engagement = register_engagement(session, parse_scope(scope_text(scope), now=NOW), now=NOW)
+        run = create_run(session, engagement, actor=human, now=NOW)
+        run_id: str = run.id
+    target = RunState(state)
+    for step in path:
+        if target is RunState.CREATED:
+            break
+        with db.begin() as session:
+            transition_run(session, run_id, step, actor=human if step is RunState.EXPORTED else worker, now=NOW)
+        if step is target:
+            break
+    return run_id
