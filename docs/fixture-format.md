@@ -112,6 +112,34 @@ directives); it is never executed or fetched from. Nothing free-form is copied: 
 every list is capped (and shortened, last entries first, until the facts fit the schema's 8 KiB limit) so a large but valid file is
 still collected.
 
+## API packs
+
+A pack may also hold an `api:` section (`docs/api-targets.md`). A key says who asked and what, exactly:
+`<principal>|<METHOD>|<scheme>://<host>:<port><path>`, and for `OPTIONS` `|<origin>` as well (`https://host` or `https://host:port`). The
+principal is `anonymous` or one the scope declares; the path is the request path with each `{name}` filled in. An entry is a `status`,
+`headers`, and a `body` (or `body_base64`) like an HTTP entry, or an `error` to simulate a failure. Each principal is answered from
+its own entry: a principal with no entry gets a recorded `adapter_error`, never another principal's answer.
+
+```yaml
+api:
+  'tenant-a-user|GET|https://api.staging.example.invalid:443/v1/projects/p-1001':
+    status: 200
+    headers: {content-type: ['application/json']}
+    body: '{"id": "p-1001", "name": "Alpha"}'
+  'anonymous|OPTIONS|https://api.staging.example.invalid:443/v1/projects|https://untrusted.example.invalid':
+    status: 204
+    headers: {allow: ['GET, HEAD, OPTIONS'], access-control-allow-origin: ['https://untrusted.example.invalid']}
+```
+
+What is stored of an API answer: for a read, the status, the redacted headers, the content type, the size, a **shape** of a JSON body
+(every field path with its JSON type and, for strings and arrays, a length: `$.items[].id` is a string of length 6) with a digest of the
+structure alone, and three flags (`has_stack_trace_markers`, `has_debug_markers`, `echoes_request_headers`). A value from a body is
+never stored, hashed or reported, and no artifact is kept for a read. A field name that is not a short plain name is recorded as `?`,
+and the keys of an object with more than sixteen are recorded as `{key}`, so a body cannot smuggle a sentence or an identifier into a
+stored field. For the spec document: the status, headers, the redacted document as an artifact, and an inventory (version, path and
+operation counts, the server URLs as data, the names of the security schemes, how many operations declare no security). For an
+`OPTIONS`: the status, the methods of the `Allow` header and the four `access-control-*` headers.
+
 ## AI-system packs
 
 A pack may also hold an `ai:` section (`docs/ai-targets.md`). Its keys are an exact metadata URL or a probe key

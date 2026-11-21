@@ -12,6 +12,14 @@ database at a revision this version does not know is refused (`STORE-002`) with 
 * Revision `0003` (M4, D-E69) adds the append-only `model_calls` and `finding_wordings` tables, each with a no-update and a no-delete
   trigger. It changes no existing table, so a database at `0002` keeps its data (tested). A database at `0002` is refused with the
   command to run until `db upgrade`.
+* Revision `0004` (M5, D-E70) admits the API target and observation kinds. SQLite cannot alter a CHECK constraint, so `targets` and
+  `observations` are **rebuilt**: the new table is created with the wider lists, every row is copied unchanged, the old table is
+  dropped and the new one takes its name, and the trigger that keeps an observation inside its run's engagement is recreated. It is
+  one transaction (a failure anywhere leaves revision `0003` exactly as it was) and it stops, undoing everything, if a row was lost or
+  a row refers to a row that is not there. Before it runs, `db upgrade` copies the database file aside (`evidence.sqlite.before-0003`,
+  then `.1`, `.2`, ... so an older copy is never replaced; mode `0600`) and prints the path. Tests rebuild a database holding the rows
+  of two real runs and compare every row and the whole schema before and after. This is the only revision so far that rewrites existing
+  records, so it needs the owner's approval before it is merged.
 * Triggers: `audit_events_no_update` and `audit_events_no_delete` (the audit trail is append-only) and
   `observations_target_in_engagement` (an observation must belong to a target of the run's own engagement).
 * **Forward only.** There is no downgrade: it raises. To go back, restore the database file from a backup made before the upgrade.

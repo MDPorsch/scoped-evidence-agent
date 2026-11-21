@@ -78,6 +78,17 @@ milestone. Residual risks are listed, not hidden.
 * **SE-31 The step list is advice.** Validation steps are text built from templates. The tool does not run them (offline it cannot), and
   `rerun_library_probe` and `check_cors_for_declared_origin` cannot be acted on in 0.x (they need live mode, and a scope that declares
   an origin, which arrives with API targets).
+* **SE-37 API targets are offline and rule-free in 0.x.** An API scope is validated, planned and answered from a fixture pack: no API is
+  contacted, no credential is read, and no rule reads the evidence, so a run drafts nothing (exit `0` when complete). Whether two
+  principals' answers show an authorization flaw is a person's call (or `boundarycheck`'s); the tool records the facts side by side.
+* **SE-38 A shape can still reveal.** Field names, types and lengths are kept; values are not. A field name is data from the target: a
+  short plain name is stored, a longer or odd one as `?`, the keys of an object with more than sixteen as `{key}`. A short key that
+  is itself an identifier (an object with a few keys named by user id) is stored as written.
+* **SE-39 The three flags are pattern matches.** A trace that no pattern knows, or a harmless word that looks like a switch, is
+  missed or flagged. They tell a reviewer where to look; they decide nothing.
+* **SE-40 The `{name}` values are listed, not discovered.** Only the values the scope lists are asked, up to five per parameter and four
+  parameters per endpoint. The tool never walks a range, a sequence or a wordlist, and a spec's own endpoints are inventory, never a
+  request.
 * **SE-32 The model can only reword, and it can reword badly.** The checks keep every number, date, version, header name, path and host
   of the rule's sentence and refuse verdict words, markup and anything over the length limit, but they cannot tell that a sentence still
   *means* the same. A plausible but slightly wrong wording passes. That is why the rule's own text is always shown first and the wording

@@ -114,3 +114,24 @@ bug in each guarded line, and its result for M1 is in `docs/milestones/M1.md`.
 | MD-10 | A wording is stored beside the rule's text, once per item, append-only; the model cannot store anything; a call row and an audit event are written for every call and never hold a sentence or a key | `integration/test_reword.py`, `integration/test_database.py` | **Covered** |
 | MD-11 | `findings show` and reports print the rule's text first and the wording labelled as not verified, naming the model and prompt version | `integration/test_ai_cli.py`, `integration/test_reword.py` | **Covered** |
 | MD-12 | A database at revision `0002` upgrades to `0003` and keeps its data | `integration/test_findings_pipeline.py` | **Covered** |
+
+## API targets (M5; D-E48 to D-E55, `docs/api-targets.md`)
+
+| ID | Invariant | Covered by | Status |
+|---|---|---|---|
+| AP-01 | The plan holds only what the scope lists, in a fixed order; a spec adds no request, path or target | `unit/test_scope_api_targets.py`, `integration/test_api_collection.py` (a spy over every adapter call), `unit/test_api_adapters.py` | **Covered** |
+| AP-02 | An OpenAPI document is recorded as inventory (counts, scheme names, server URLs as data); its text is never copied into a field | `unit/test_api_parse.py`, `unit/test_api_adapters.py`, `integration/test_api_collection.py` | **Covered** |
+| AP-03 | Only `GET` and `HEAD` can be listed for an endpoint; every rule is required and only `forbidden` is accepted | `unit/test_scope_api_targets.py` | **Covered** |
+| AP-04 | A parameter lists 1 to 5 values from a closed alphabet, 4 parameters at most, and every `{name}` has a list and every list a `{name}` | `unit/test_scope_api_targets.py` (with a property test of the plan size) | **Covered** |
+| AP-05 | A filled-in path is canonical, at most 256 characters, and never keeps a brace | `unit/test_scope_api_targets.py`, `property/test_api_properties.py` | **Covered** |
+| AP-06 | The plan must fit `max_api_requests` exactly (11 fits 11, not 10); a smaller global budget ends a run incomplete | `unit/test_scope_api_targets.py`, `integration/test_api_collection.py` | **Covered** |
+| AP-07 | No value from a response body is in any row, hash input, report or file; a read keeps no artifact | `integration/test_api_collection.py`, `unit/test_api_adapters.py`, `property/test_api_properties.py` | **Covered** |
+| AP-08 | Two principals' answers can be compared by the digest of their structure | `unit/test_api_parse.py`, `integration/test_api_collection.py` | **Covered** |
+| AP-09 | A hostile key, a map of identifiers, a huge or deeply nested body, a non-JSON body and a compressed or binary one are recorded, bounded and unable to carry text | `unit/test_api_parse.py`, `property/test_api_properties.py`, `integration/test_api_collection.py` | **Covered** |
+| AP-10 | Each principal is answered from its own entry; a missing answer is a recorded `adapter_error` | `unit/test_api_adapters.py`, `integration/test_api_collection.py` | **Covered** |
+| AP-11 | Production needs an approval reference and only production may have one; ids, hosts, ports, origins and labels are strict | `unit/test_scope_api_targets.py` | **Covered** |
+| AP-12 | Migration `0004` keeps every row, restores the trigger, is atomic, refuses to run with foreign keys on, and `db upgrade` copies the database aside first | `integration/test_api_migration.py` | **Covered** |
+| AP-13 | The pack's `api` keys are one spelling per request, and an `OPTIONS` key carries its origin | `unit/test_api_pack.py` | **Covered** |
+| AP-14 | A scope without API targets keeps its hash; every API field is part of the hash; the order of a `params` mapping changes neither hash nor plan | `unit/test_scope_api_targets.py` | **Covered** |
+| AP-15 | `access-control-allow-credentials` survives redaction and reaches rule R-CORS-01; only that exact name is exempt | `unit/test_redact.py`, `integration/test_findings_pipeline.py` | **Covered** |
+

@@ -4,6 +4,22 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
+### Added (M5: API-target scopes, offline)
+- A scope may list `api_targets` (`docs/api-targets.md`): REST APIs with a base path, named principals, explicit `GET`/`HEAD` endpoints
+  whose `{name}` segments take a listed value list (at most five values, never a range), CORS origins to try, and a request limit. The
+  plan, the hash and the limits are exact; a spec lists inventory and never widens the scope.
+- Three new observations, `api_spec`, `api_read` and `api_options`, read from a fixture pack's new `api` section: for each principal's
+  answer, the status, redacted headers, the **shape** of a JSON body (never a value) with a digest of its structure, and three flags
+  (stack trace, debug switch, echoed credential). The spec document is kept as a redacted artifact with an inventory. No artifact is
+  kept for a read, and no rule reads API evidence yet, so a run drafts nothing.
+- Migration `0004` rebuilds `targets` and `observations` (D-E70, **review-gated**): every row is copied unchanged in one transaction that
+  checks nothing was lost, and `db upgrade` copies the database file aside first and says where.
+- Decisions D-E70 to D-E73 (the rebuild, facts only, the CORS credentials header, the pack key).
+
+### Fixed (found while building M5)
+- `Access-Control-Allow-Credentials: true` was redacted by name (it contains "credential"), so the credentials branch of rule R-CORS-01
+  could never fire on stored data. Only that exact header name is now exempt (D-E72), with a regression test through the real pipeline.
+
 ### Added (M4: the optional model adapter, off by default)
 - `ai enable|status|disable|test` and `findings reword RUN [--finding ID]` (`docs/ai-adapter.md`). The model is Claude through the official
   `anthropic` SDK (an optional extra: `pip install "scoped-evidence-agent[ai]"`) or an offline stand-in that makes no connection. It may
