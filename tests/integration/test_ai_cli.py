@@ -430,3 +430,97 @@ def test_the_status_of_the_offline_provider_asks_for_no_key(data_dir: Path) -> N
     invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
     out = invoke("ai", "status", "--data-dir", str(data_dir)).output
     assert "provider: offline" in out and "key:" not in out and "hosts masked: yes" in out
+
+
+def test_enabling_does_not_replace_a_broken_configuration_it_refuses_and_leaves_it_alone(data_dir: Path) -> None:
+    path = config_path(DataDir(data_dir).root)
+    path.write_text("not json")
+    path.chmod(0o600)
+    out = invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
+    assert out.exit_code == 1 and "AI-001" in out.output and "Traceback" not in out.output
+    assert path.read_text() == "not json"
+    path.chmod(0o644)  # an unsafe mode is refused too, and not repaired by enabling
+    out = invoke("ai", "enable", "--yes", "--data-dir", str(data_dir))
+    assert out.exit_code == 1 and "AI-001" in out.output and path.read_text() == "not json"
+
+
+def sent_text(fake: Fake) -> str:
+    return "\n".join(item.text for request in fake.requests for item in request.items)
+
+
+def test_the_hosts_of_the_scope_are_masked_before_anything_is_sent_and_put_back_after(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_config(DataDir(data_dir).root, default_config("anthropic"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+    fake = Fake()
+    monkeypatch.setattr(cli_module, "build_adapter", lambda config, environ: fake)
+    run_id = collect(data_dir)
+    assert invoke("findings", "reword", run_id, "--data-dir", str(data_dir)).exit_code == 0
+    assert "bad.example.invalid" not in sent_text(fake) and "HOST_A" in sent_text(fake)
+    first = invoke("findings", "list", run_id, "--data-dir", str(data_dir)).output.splitlines()[1].split()[0]
+    shown = invoke("findings", "show", first, "--data-dir", str(data_dir)).output
+    assert "HOST_A" not in shown and "Put simply: The certificate's names do not cover bad.example.invalid." in shown
+
+
+def test_the_hosts_to_mask_are_those_of_the_web_and_the_ai_targets_of_the_stored_scope() -> None:
+    import yaml  # noqa: PLC0415
+
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+
+    # no current rule names an AI target's host in a sentence, so this guards the helper itself rather than a visible effect
+    web = parse_scope(SCOPE_FILES["misconfigured"].read_text(), now=NOW)
+    ai = parse_scope(SCOPE_FILES["ai-support-bot"].read_text(), now=NOW)
+    assert cli_module._scope_hosts(web.canonical_json) == ["bad.example.invalid"]
+    assert cli_module._scope_hosts(ai.canonical_json) == ["assistant.example.invalid"]
+    data = yaml.safe_load(SCOPE_FILES["ai-support-bot"].read_text())
+    data["allowed_targets"] = yaml.safe_load(SCOPE_FILES["misconfigured"].read_text())["allowed_targets"]
+    data["allowed_operations"] = ["dns_metadata", "ai_metadata", "ai_probe"]
+    both = parse_scope(yaml.safe_dump(data), now=NOW)
+    assert cli_module._scope_hosts(both.canonical_json) == ["bad.example.invalid", "assistant.example.invalid"]
+
+
+def test_with_masking_off_the_host_is_sent_as_it_is(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    save_config(DataDir(data_dir).root, default_config("anthropic").model_copy(update={"mask_hosts": False}))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+    fake = Fake()
+    monkeypatch.setattr(cli_module, "build_adapter", lambda config, environ: fake)
+    run_id = collect(data_dir)
+    assert invoke("findings", "reword", run_id, "--data-dir", str(data_dir)).exit_code == 0
+    assert "bad.example.invalid" in sent_text(fake) and "HOST_A" not in sent_text(fake)
+
+
+def test_a_wording_that_contains_the_key_is_dropped_by_the_command_and_never_stored_or_shown(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain = "sk-ant-plainlowercasekeyvalue"  # no digit, capital or dot: only the key check can object to it
+    save_config(DataDir(data_dir).root, default_config("anthropic"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", plain)
+
+    class Leaky(Fake):
+        def reword(self, request: RewordRequest) -> RewordReply:
+            return RewordReply({i.id: i.text + " " + plain for i in request.items}, 5, 5)
+
+    monkeypatch.setattr(cli_module, "build_adapter", lambda config, environ: Leaky())
+    run_id = collect(data_dir)
+    out = invoke("findings", "reword", run_id, "--data-dir", str(data_dir))
+    assert out.exit_code == 0 and "reworded 0 sentences" in out.output and plain not in out.output
+    assert "kept as the rule wrote them: 77" in out.output
+    first = invoke("findings", "list", run_id, "--data-dir", str(data_dir)).output.splitlines()[1].split()[0]
+    assert plain not in invoke("findings", "show", first, "--data-dir", str(data_dir)).output
+
+
+def test_run_says_nothing_about_the_model_once_it_has_been_disabled(data_dir: Path) -> None:
+    invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
+    invoke("ai", "disable", "--data-dir", str(data_dir))
+    assert config_path(DataDir(data_dir).root).exists()  # the file is kept; only the switch is off
+    out = invoke(
+        "run",
+        "--scope",
+        str(SCOPE_FILES["misconfigured"]),
+        "--fixture",
+        str(FIXTURES / "web_responses" / "misconfigured.yaml"),
+        "--data-dir",
+        str(data_dir),
+    )
+    assert out.exit_code == 3 and "AI wording" not in out.output

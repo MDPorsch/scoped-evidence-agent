@@ -322,6 +322,26 @@ def test_a_failed_call_is_recorded_and_the_next_finding_is_still_tried(
         and {r[2] for r in stored} == {0}
     )
     assert rows(env, "SELECT count(*) FROM finding_wordings")[0][0] == 0
+    decisions = rows(env, "SELECT DISTINCT decision FROM audit_events WHERE action = 'model.reword'")
+    assert decisions == [("recorded",)]  # a failure is recorded; "allowed" is for a call that produced an answer
+
+
+def test_each_wording_records_the_hash_of_the_rule_sentence_it_sits_beside(env: Any, run_id: str) -> None:
+    import hashlib  # noqa: PLC0415
+
+    go(env, run_id, Scripted())
+    pieces = {f.id: pieces_of(d) for f, d in findings_of(env[0], run_id)}
+    stored = rows(env, "SELECT finding_id, field, item_index, original_sha256, text FROM finding_wordings")
+    assert len(stored) == piece_count(env, run_id)
+    for finding_id, field, index, digest, wording in stored:
+        piece = next(p for p in pieces[finding_id] if (p.field, p.index) == (field, index))
+        assert digest == hashlib.sha256(piece.text.encode()).hexdigest()
+        assert digest != hashlib.sha256(wording.encode()).hexdigest()  # the wording differs, so its hash would too
+
+
+def test_a_successful_call_is_audited_as_allowed(env: Any, run_id: str) -> None:
+    go(env, run_id, Scripted())
+    assert rows(env, "SELECT DISTINCT decision FROM audit_events WHERE action = 'model.reword'") == [("allowed",)]
 
 
 def test_a_bug_in_an_adapter_is_unavailable_and_its_message_is_never_stored(env: Any, run_id: str) -> None:
@@ -391,6 +411,24 @@ def test_the_limit_counts_calls_made_by_earlier_commands(env: Any, run_id: str) 
     assert model.requests == [] and summary.calls == 0 and summary.statuses == {"budget_exhausted": 5}
 
 
+def test_a_negative_token_count_from_an_adapter_is_recorded_as_zero_not_trusted(env: Any, run_id: str) -> None:
+    model = Scripted(lambda r: RewordReply({i.id: "Put simply: " + i.text for i in r.items}, -5, -7))
+    summary = go(env, run_id, model)
+    assert summary.tokens == 0 and summary.statuses == {"ok": 8}
+    assert rows(env, "SELECT DISTINCT input_tokens, output_tokens FROM model_calls") == [(0, 0)]
+
+
+def test_a_refusal_is_not_a_call_so_raising_the_limit_lets_the_rest_through(env: Any, run_id: str) -> None:
+    low = default_config("offline").model_copy(update={"limits": AiLimits(max_calls_per_run=3)})
+    go(env, run_id, Scripted(), config=low)  # 3 calls, 5 refusals recorded
+    high = default_config("offline").model_copy(update={"limits": AiLimits(max_calls_per_run=6)})
+    model = Scripted()
+    summary = go(env, run_id, model, config=high)
+    assert (
+        summary.statuses == {"ok": 3, "budget_exhausted": 2} and len(model.requests) == 3
+    )  # 6 allowed, 3 already made
+
+
 def test_a_call_that_could_spend_more_tokens_than_the_run_has_left_is_refused(env: Any, run_id: str) -> None:
     config = default_config("offline").model_copy(
         update={"limits": AiLimits(max_output_tokens=256, max_total_tokens=1000)}
@@ -436,7 +474,10 @@ def test_a_wording_for_a_field_outside_the_list_or_a_negative_index_is_refused(e
     db, _, _ = env
     (finding, _), *_ = findings_of(db, run_id)
     for field, index in (("title", 0), ("facts", 0), ("condition", -1)):
-        with pytest.raises((StateError, DBAPIError, ValueError)), db.begin() as session:
+        with (
+            pytest.raises(ValueError, match="known field"),
+            db.begin() as session,
+        ):  # the service says so before the database does
             store_wording(
                 session,
                 finding_id=finding.id,

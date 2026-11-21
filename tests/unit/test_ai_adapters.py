@@ -153,9 +153,12 @@ def test_a_refusal_is_recorded_as_a_refusal() -> None:
     assert error.status == "refused"
 
 
-def test_a_reply_cut_off_by_the_token_cap_is_invalid() -> None:
-    error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message('{"items": [', stop="max_tokens"))))
-    assert error.status == "invalid"
+def test_a_reply_cut_off_by_the_token_cap_is_invalid_even_if_what_arrived_looks_complete() -> None:
+    whole = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}]})
+    error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(whole, stop="max_tokens"))))
+    assert error.status == "invalid" and "token limit" in error.detail
+    cut = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message('{"items": [', stop="max_tokens"))))
+    assert cut.status == "invalid" and "token limit" in cut.detail
 
 
 def test_a_reply_with_no_text_is_invalid() -> None:
@@ -208,9 +211,13 @@ def test_a_reply_that_is_valid_json_of_the_wrong_shape_is_invalid() -> None:
 
 
 def test_a_reply_that_echoes_the_key_is_refused_as_a_whole() -> None:
-    body = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}], "note": KEY})
+    body = json.dumps(
+        {"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE + " " + KEY}]}
+    )  # a perfect shape
     error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(body))))
-    assert error.status == "invalid" and KEY not in str(error)
+    assert error.status == "invalid" and "key" in error.detail and KEY not in str(error)
+    extra = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}], "note": KEY})
+    assert unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(extra)))).status == "invalid"
 
 
 # --------------------------------------------------------------------------------------------- the offline model ----

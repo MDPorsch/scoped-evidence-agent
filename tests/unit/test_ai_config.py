@@ -135,11 +135,11 @@ def test_a_symbolic_link_is_refused(root: Path, tmp_path: Path) -> None:
     target.write_text(default_config("offline").model_dump_json())
     target.chmod(0o600)
     config_path(root).symlink_to(target)
-    with pytest.raises(AiError):
+    with pytest.raises(AiError, match="symbolic link"):  # named as a link, not merely "not a regular file"
         load_config(root)
-    with pytest.raises(AiError):
+    with pytest.raises(AiError, match="symbolic link"):
         save_config(root, default_config("offline"))
-    assert json.loads(target.read_text())["provider"] == "offline"
+    assert json.loads(target.read_text())["provider"] == "offline" and config_path(root).is_symlink()
 
 
 def test_a_file_owned_by_another_user_is_refused(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
