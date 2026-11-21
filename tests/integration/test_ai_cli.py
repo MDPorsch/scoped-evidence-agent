@@ -488,3 +488,22 @@ def test_with_masking_off_the_host_is_sent_as_it_is(data_dir: Path, monkeypatch:
     run_id = collect(data_dir)
     assert invoke("findings", "reword", run_id, "--data-dir", str(data_dir)).exit_code == 0
     assert "bad.example.invalid" in sent_text(fake) and "HOST_A" not in sent_text(fake)
+
+
+def test_a_wording_that_contains_the_key_is_dropped_by_the_command_and_never_stored_or_shown(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_config(DataDir(data_dir).root, default_config("anthropic"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+
+    class Leaky(Fake):
+        def reword(self, request: RewordRequest) -> RewordReply:
+            return RewordReply({i.id: i.text + " " + KEY for i in request.items}, 5, 5)
+
+    monkeypatch.setattr(cli_module, "build_adapter", lambda config, environ: Leaky())
+    run_id = collect(data_dir)
+    out = invoke("findings", "reword", run_id, "--data-dir", str(data_dir))
+    assert out.exit_code == 0 and "reworded 0 sentences" in out.output and KEY not in out.output
+    assert "kept as the rule wrote them: 77" in out.output
+    first = invoke("findings", "list", run_id, "--data-dir", str(data_dir)).output.splitlines()[1].split()[0]
+    assert KEY not in invoke("findings", "show", first, "--data-dir", str(data_dir)).output
