@@ -130,7 +130,7 @@ def test_the_default_client_goes_only_to_the_fixed_endpoint_whatever_the_environ
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://evil.invalid")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "other-token")
     client = default_client(KEY)
-    assert str(client.base_url).startswith("https://api.anthropic.com")
+    assert str(client.base_url) == ANTHROPIC_BASE_URL  # exactly the fixed endpoint, not a prefix of something else
     assert client.api_key == KEY and client.timeout == 60.0 and client.max_retries == 2
     assert client.auth_token is None  # a bearer token from the environment is never sent
 
