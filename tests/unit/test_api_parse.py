@@ -27,7 +27,7 @@ def shape_of(doc: Any) -> dict[tuple[str, str], int | None]:
 def test_a_shape_is_the_path_the_type_and_the_length_of_every_field() -> None:
     shape = json_shape('{"items": [{"id": "abc", "n": 1, "ok": true, "x": null, "r": 1.5}], "name": "Alpha"}')
     assert shape.status == "ok"
-    assert dict(((p, k), n) for p, k, n in shape.entries) == {
+    assert {(p, k): n for p, k, n in shape.entries} == {
         ("$", "object"): None,
         ("$.items", "array"): 1,
         ("$.items[]", "object"): None,
@@ -81,7 +81,7 @@ def test_a_key_that_is_not_a_short_plain_name_is_recorded_as_a_question_mark() -
         "ok_key-1.2": 7,
     }
     paths = {p for p, _ in shape_of(hostile)}
-    assert paths == {"$", "$.?", "$.ok_key-1.2", "$.$.x"} or paths == {"$", "$.?", "$.ok_key-1.2"}
+    assert paths == {"$", "$.?", "$.ok_key-1.2"}  # even "$.x" is a key that is not a plain name
     assert not any("ignore" in p or "script" in p or "naïve" in p for p in paths)
 
 

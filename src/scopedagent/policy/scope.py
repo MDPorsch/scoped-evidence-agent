@@ -11,8 +11,8 @@ import re
 import stat
 import unicodedata
 from dataclasses import dataclass
-from itertools import product
 from datetime import UTC, datetime, timedelta
+from itertools import product
 from pathlib import Path
 from typing import Annotated, Any, Literal
 

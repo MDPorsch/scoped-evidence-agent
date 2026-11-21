@@ -89,10 +89,11 @@ def _create_observations() -> None:
 def _rebuild(table: str, create: object) -> int:
     """Create `<table>__new`, copy every row, drop the old table, rename. Returns the number of rows copied."""
     connection = op.get_bind()
-    before = connection.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar_one()
+    # `table` is one of two constants of this file, never input: the f-strings below only name it
+    before = connection.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar_one()  # noqa: S608
     create()  # type: ignore[operator]
-    connection.exec_driver_sql(f"INSERT INTO {table}__new SELECT * FROM {table}")
-    after = connection.exec_driver_sql(f"SELECT count(*) FROM {table}__new").scalar_one()
+    connection.exec_driver_sql(f"INSERT INTO {table}__new SELECT * FROM {table}")  # noqa: S608
+    after = connection.exec_driver_sql(f"SELECT count(*) FROM {table}__new").scalar_one()  # noqa: S608
     if before != after:
         raise RuntimeError(f"{table}: {before} rows before the copy and {after} after: the migration is stopped")
     connection.exec_driver_sql(f"DROP TABLE {table}")

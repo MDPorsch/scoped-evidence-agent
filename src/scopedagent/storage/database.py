@@ -98,7 +98,7 @@ def _read_revision(path: Path) -> str | None:
 
 
 def _copy_aside(path: Path, revision: str) -> Path:
-    """A consistent copy of a database that is about to be migrated, next to it, private, never replacing an older one."""
+    """A consistent copy of a database about to be migrated, next to it, private, never replacing an older one."""
     target = path.with_name(f"{path.name}.before-{revision}")
     number = 1
     while target.exists() or target.is_symlink():
@@ -120,8 +120,11 @@ def _copy_aside(path: Path, revision: str) -> Path:
 
 
 def upgrade_database_with_backup(data_dir: DataDir) -> tuple[str, Path | None]:
-    """Create the store if needed and bring it to the head revision. Returns the revision and, when a database that already
-    held a schema had to change, the copy made of it first (docs/migrations.md)."""
+    """Create the store if needed and bring it to the head revision.
+
+    Returns the revision and, when a database that already held a schema had to change, the copy made of it first
+    (docs/migrations.md).
+    """
     _ensure_directory(data_dir.root)
     path = data_dir.db_path
     if not path.exists() and not path.is_symlink():

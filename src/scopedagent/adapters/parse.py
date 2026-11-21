@@ -243,9 +243,11 @@ def _json_type(value: Any) -> str:
 
 
 def json_shape(text: str | None) -> Shape:
-    """The shape of a JSON body: `$.items[].id` is a string of length 12, and so on. A key that is not a short plain name
-    is recorded as `?`, and the keys of a map (more than 16) as `{key}`, so a body cannot smuggle a sentence or an id
-    into a stored field."""
+    """The shape of a JSON body: `$.items[].id` is a string of length 12, and so on.
+
+    A key that is not a short plain name is recorded as `?`, and the keys of a map (more than 16) as `{key}`, so a body
+    cannot smuggle a sentence or an id into a stored field.
+    """
     if text is None:
         return Shape("none", (), None, False, False, False)
     try:
@@ -269,7 +271,7 @@ def json_shape(text: str | None) -> Shape:
         previous = seen.get(key)
         seen[key] = length if previous is None else max(previous, length or 0)
         if depth >= MAX_SHAPE_DEPTH:
-            partial = partial or isinstance(node, (dict, list)) and bool(node)
+            partial = partial or (isinstance(node, (dict, list)) and bool(node))
             continue
         if isinstance(node, dict):
             collapse = len(node) > MANY_KEYS
@@ -308,8 +310,8 @@ def allow_methods(values: list[str]) -> list[str]:
     """The methods an `Allow` header names (upper-case tokens only, at most 12, in order, once each)."""
     seen: list[str] = []
     for value in values:
-        for token in value.split(","):
-            token = token.strip()
+        for raw in value.split(","):
+            token = raw.strip()
             if _ALLOW_TOKEN.fullmatch(token) and token not in seen and len(seen) < 12:
                 seen.append(token)
     return seen

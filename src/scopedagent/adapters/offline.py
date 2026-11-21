@@ -680,16 +680,15 @@ class OfflineApiOptions(_ApiAdapter):
             "access-control-allow-methods",
             "access-control-allow-headers",
         )
-        found = {n: (ex.headers.get(n) or [None])[0] for n in names}
-        cors = (
-            None
-            if all(v is None for v in found.values())
-            else dict(
-                zip(
-                    ("allow_origin", "allow_credentials", "allow_methods", "allow_headers"), found.values(), strict=True
-                )
-            )
-        )
+        found: dict[str, str | None] = {n: (ex.headers[n][0] if ex.headers.get(n) else None) for n in names}
+        cors = None
+        if any(v is not None for v in found.values()):
+            cors = {
+                "allow_origin": found["access-control-allow-origin"],
+                "allow_credentials": found["access-control-allow-credentials"],
+                "allow_methods": found["access-control-allow-methods"],
+                "allow_headers": found["access-control-allow-headers"],
+            }
         allow = allow_methods(ex.headers.get("allow", []))
         payload = _api_payload(operation, http_status=ex.status, allow=allow, cors=cors)
         source = _canon({"status": ex.status, "allow": allow, "cors": cors})
