@@ -29,6 +29,12 @@ dependencies = [
 [project.scripts]
 scoped-agent = "scopedagent.cli:app"
 
+[project.urls]
+Homepage = "https://github.com/MDPorsch/scoped-evidence-agent"
+Source = "https://github.com/MDPorsch/scoped-evidence-agent"
+Issues = "https://github.com/MDPorsch/scoped-evidence-agent/issues"
+Security = "https://github.com/MDPorsch/scoped-evidence-agent/security/policy"
+
 [dependency-groups]
 dev = [
     "hypothesis>=6.170.17,<7",

@@ -1,0 +1,22 @@
+name: Bug report
+description: "Something does not work as documented (security problems go through the security policy, not here)"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real credentials, personal data or details of systems you do not own.
+        A scope that is refused as documented is not a bug (see docs/scope-format.md and LIMITATIONS.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: "What did you run, what did you expect, and what did you get?"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: "OS, `uv --version`, `uv run python --version`, and the commit you are on"
+    validations:
+      required: true

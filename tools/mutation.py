@@ -490,6 +490,23 @@ M: dict[str, list[tuple[str, str, str]]] = {
     "cli_ai_target_line_wrong": [(CLI, "({ai.kind}, {ai.environment})", "({ai.kind}, {ai.kind})")],
     "cli_ai_breakdown_dropped": [(CLI, 'breakdown += f", ai metadata {counts[\'ai_metadata\']}, ai probes {counts[\'ai_probe\']}"', 'breakdown += ""')],
     "cli_ai_breakdown_always_shown": [(CLI, "    if config.ai_targets:\n        breakdown", "    if True:\n        breakdown")],
+    # ---- scope init and --version ---------------------------------------------------------------
+    "cli_init_replaces_without_force": [(CLI, "if path.exists() and not force:", "if False:")],
+    "cli_init_follows_symlinks": [(CLI, "if path.is_symlink():", "if False:")],
+    "cli_init_accepts_a_missing_directory": [(CLI, "if not path.parent.is_dir():", "if False:")],
+    "cli_init_accepts_a_directory": [(CLI, "if path.is_dir():", "if False:")],
+    "cli_init_force_ignored": [(CLI, '"w" if force else "x"', '"x"')],
+    "cli_init_unvalidated_starter_written": [(CLI, "parse_scope(text, now=now)  # never write", "pass  # never write")],
+    "cli_init_hint_dropped": [(CLI, 'typer.echo(f"edit the placeholders, then check it: scoped-agent scope validate {file}")', "pass")],
+    "cli_init_notice_dropped": [(CLI, 'scope validate {file}")\n    typer.echo(f"note: {AUTHORIZATION_NOTICE}")', 'scope validate {file}")')],
+    "cli_init_clock_ignored": [(CLI, "now = _context(ctx).clock()\n    try:\n        text = starter_scope(now)", "now = _now()\n    try:\n        text = starter_scope(now)")],
+    "cli_version_name_changed": [(CLI, 'typer.echo(f"scoped-agent {__version__}")', 'typer.echo(f"scopedagent {__version__}")')],
+    "cli_version_not_printed": [(CLI, 'typer.echo(f"scoped-agent {__version__}")\n        raise typer.Exit()', "raise typer.Exit()")],
+    "starter_lasts_longer": [(f"{SRC}/template.py", "STARTER_DAYS = 30", "STARTER_DAYS = 31")],
+    "starter_follows_redirects": [(f"{SRC}/template.py", "follow_redirects: false", "follow_redirects: true")],
+    "starter_names_a_real_looking_host": [(f"{SRC}/template.py", "host: app.example.invalid", "host: app.example.com")],
+    "starter_is_live": [(f"{SRC}/template.py", "mode: offline", "mode: live")],
+    "starter_drops_the_warning": [(f"{SRC}/template.py", "A scope is a restriction. It is not proof that you are authorized", "A scope is a list. It is a way to be authorized")],
 }  # fmt: skip
 
 IGNORE = shutil.ignore_patterns(

@@ -15,13 +15,15 @@ from typing import Annotated
 import typer
 from sqlalchemy import select
 
+from scopedagent import __version__
 from scopedagent.domain.models import Engagement, Run
 from scopedagent.errors import ErrorCode, PolicyError, ScopedAgentError
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE
-from scopedagent.policy.scope import load_scope
+from scopedagent.policy.scope import load_scope, parse_scope
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
 from scopedagent.storage.repositories import MAX_PAGE, list_runs
+from scopedagent.template import starter_scope
 
 
 def _now() -> datetime:
@@ -55,6 +57,23 @@ db_app = typer.Typer(no_args_is_help=True, help="The evidence database.")
 scope_app = typer.Typer(no_args_is_help=True, help="Scope files.")
 runs_app = typer.Typer(no_args_is_help=True, help="Run history.")
 audit_app = typer.Typer(no_args_is_help=True, help="The audit trail.")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"scoped-agent {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool, typer.Option("--version", callback=_version_callback, is_eager=True, help="Show the version and exit.")
+    ] = False,
+) -> None:
+    """Bounded, auditable reconnaissance evidence from explicitly scoped targets."""
+
+
 app.add_typer(db_app, name="db")
 app.add_typer(scope_app, name="scope")
 app.add_typer(runs_app, name="runs")
@@ -119,6 +138,42 @@ def scope_validate(ctx: typer.Context, file: Annotated[Path, typer.Argument(help
             f"warning: the scope plans {len(loaded.planned)} operations but max_requests is {config.max_requests}; "
             "the run will be incomplete (exit 2)"
         )
+    typer.echo(f"note: {AUTHORIZATION_NOTICE}")
+
+
+def _write_starter(path: Path, text: str, *, force: bool) -> None:
+    """Create the starter file: no links followed, nothing replaced without --force, no directories created."""
+    if not path.parent.is_dir():
+        raise PolicyError(ErrorCode.POLICY_003, f"the directory {path.parent} does not exist")
+    if path.is_symlink():
+        raise PolicyError(ErrorCode.POLICY_003, f"{path} is a symbolic link: choose a plain file name")
+    if path.is_dir():
+        raise PolicyError(ErrorCode.POLICY_003, f"{path} is a directory: give a file name")
+    if path.exists() and not force:
+        raise PolicyError(ErrorCode.POLICY_003, f"{path} already exists; use --force to replace it")
+    try:
+        with path.open("w" if force else "x", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError:
+        raise PolicyError(ErrorCode.POLICY_003, f"could not write {path}") from None
+
+
+@scope_app.command("init")
+def scope_init(
+    ctx: typer.Context,
+    file: Annotated[Path, typer.Argument(help="Where to write the starter scope.")],
+    force: Annotated[bool, typer.Option("--force", help="Replace the file if it exists.")] = False,
+) -> None:
+    """Write a valid starter scope for an offline run, then edit it. Contacts nothing."""
+    now = _context(ctx).clock()
+    try:
+        text = starter_scope(now)
+        parse_scope(text, now=now)  # never write a starter this tool would itself refuse
+        _write_starter(file, text, force=force)
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo(f"wrote {file}")
+    typer.echo(f"edit the placeholders, then check it: scoped-agent scope validate {file}")
     typer.echo(f"note: {AUTHORIZATION_NOTICE}")
 
 

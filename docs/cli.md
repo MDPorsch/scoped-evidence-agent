@@ -8,6 +8,8 @@
 | Command | Does | Security rule |
 |---|---|---|
 | `db upgrade` | Creates or migrates the database. The **only** command that changes the schema. | Never runs implicitly (D-E10). |
+| `--version` | Prints the version and exits. | |
+| `scope init FILE [--force]` | Writes a valid offline starter scope on a reserved `.invalid` host, expiring in 30 days, with comments on what to edit. Never follows a link, never replaces a file without `--force`, never creates directories. | Contacts nothing; the starter is parsed before it is written. |
 | `scope validate FILE` | Parses, normalises and prints the scope, its hash and the planned operation count. | Exit `1` on any refusal; nothing is stored. |
 | `run --scope FILE --fixture DIR` | Offline run: validate, record the engagement, collect from the pack, correlate, draft. | No socket; deterministic. `--live` is refused in 0.x. |
 | `runs list [--limit N --offset M]` | Local run history. | Bounded pagination (limit at most 100). |
@@ -18,7 +20,7 @@
 | `artifacts purge --before DATE` | Retention cleanup. | Only recorded sha256 files under the artifact root; symlinks refused; writes a receipt. |
 | `audit verify RUN` | Recomputes the audit hash chain of one run. | Read-only; exit `1` on a broken chain. |
 
-M1 delivers `db upgrade`, `scope validate`, `runs list` and `audit verify`. The rest arrive with the milestone
+M1 delivers `--version`, `db upgrade`, `scope init`, `scope validate`, `runs list` and `audit verify`. The rest arrive with the milestone
 that owns their data: collection (M2), drafts and reports (M3), the model (M4).
 
 ## Exit codes (D-E09)

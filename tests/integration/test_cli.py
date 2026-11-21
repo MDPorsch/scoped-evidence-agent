@@ -307,3 +307,128 @@ def test_an_ai_scope_that_allows_a_rule_is_refused_with_its_code_and_field(tmp_p
         and "error SCOPE-011" in result.output
         and "ai_targets[0].rules.tool_invocation" in result.output
     )
+
+
+# ------------------------------------------------------------------------- --version and scope init ----
+def test_version_prints_the_tool_name_and_version() -> None:
+    from scopedagent import __version__  # noqa: PLC0415
+
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0 and result.output.strip() == f"scoped-agent {__version__}"
+
+
+def test_the_version_flag_works_without_a_subcommand_and_before_one() -> None:
+    assert (
+        runner.invoke(app, ["--version", "db"]).exit_code == 0
+    )  # eager: it answers before the subcommand is looked at
+
+
+def test_init_writes_a_starter_scope_that_validates_and_expires_in_thirty_days(tmp_path: Path) -> None:
+    from datetime import timedelta  # noqa: PLC0415
+
+    from scopedagent.policy.scope import load_scope  # noqa: PLC0415
+
+    path = tmp_path / "scope.yaml"
+    result = invoke("scope", "init", str(path))
+    assert result.exit_code == 0, result.output
+    loaded = load_scope(path, now=NOW)
+    assert loaded.config.expires_at == NOW + timedelta(days=30) and loaded.config.mode == "offline"
+    assert loaded.config.follow_redirects is False and loaded.config.allowed_targets[0].host.endswith(".invalid")
+    assert invoke("scope", "validate", str(path)).exit_code == 0
+
+
+def test_the_starter_tells_the_user_what_to_edit_and_what_it_does_not_prove(tmp_path: Path) -> None:
+    path = tmp_path / "scope.yaml"
+    result = invoke("scope", "init", str(path))
+    text = path.read_text(encoding="utf-8")
+    assert (
+        "not proof of authorization" in result.output
+        and "scope validate" in result.output
+        and str(path) in result.output
+    )
+    assert "EDIT BEFORE USE" in text and "restriction" in text and "replace-with-your-reference" in text
+
+
+def test_the_starter_uses_the_injected_clock(tmp_path: Path) -> None:
+    from datetime import timedelta  # noqa: PLC0415
+
+    later = AppContext(clock=lambda: NOW + timedelta(days=100), user=lambda: "alice")
+    path = tmp_path / "scope.yaml"
+    assert invoke("scope", "init", str(path), ctx=later).exit_code == 0
+    assert "2027-03-" in path.read_text(encoding="utf-8")  # NOW + 100 days + 30 days = 2027-03-30
+
+
+def test_init_never_overwrites_without_force(tmp_path: Path) -> None:
+    path = tmp_path / "scope.yaml"
+    path.write_text("keep: me\n", encoding="utf-8")
+    result = invoke("scope", "init", str(path))
+    assert result.exit_code == 1 and "POLICY-003" in result.output and "--force" in result.output
+    assert path.read_text(encoding="utf-8") == "keep: me\n"
+    assert invoke("scope", "init", str(path), "--force").exit_code == 0
+    assert "EDIT BEFORE USE" in path.read_text(encoding="utf-8")
+
+
+def test_init_refuses_a_missing_directory_and_a_directory_path(tmp_path: Path) -> None:
+    missing = invoke("scope", "init", str(tmp_path / "no-such-dir" / "scope.yaml"))
+    assert missing.exit_code == 1 and "POLICY-003" in missing.output and "does not exist" in missing.output
+    assert not (tmp_path / "no-such-dir").exists()
+    as_directory = invoke("scope", "init", str(tmp_path), "--force")
+    assert (
+        as_directory.exit_code == 1 and "POLICY-003" in as_directory.output and "is a directory" in as_directory.output
+    )
+
+
+def test_init_does_not_follow_a_symlink_that_points_elsewhere(tmp_path: Path) -> None:
+    victim = tmp_path / "victim.txt"
+    victim.write_text("do not touch", encoding="utf-8")
+    link = tmp_path / "scope.yaml"
+    link.symlink_to(victim)
+    result = invoke("scope", "init", str(link), "--force")
+    assert (
+        result.exit_code == 1
+        and "symbolic link" in result.output
+        and victim.read_text(encoding="utf-8") == "do not touch"
+    )
+
+
+def test_the_starter_contains_no_real_host_and_no_secret_shaped_value(tmp_path: Path) -> None:
+    import re  # noqa: PLC0415
+
+    path = tmp_path / "scope.yaml"
+    invoke("scope", "init", str(path))
+    text = path.read_text(encoding="utf-8")
+    hosts = re.findall(r"^\s*(?:- )?host:\s*(\S+)", text, re.MULTILINE)  # real YAML keys, not prose
+    assert hosts and all(h.endswith(".invalid") for h in hosts)
+    assert not re.search(r"[A-Za-z0-9+/_-]{32,}", text)
+
+
+def test_the_starter_plans_fewer_operations_than_its_budget(tmp_path: Path) -> None:
+    from scopedagent.policy.scope import load_scope  # noqa: PLC0415
+
+    path = tmp_path / "scope.yaml"
+    invoke("scope", "init", str(path))
+    loaded = load_scope(path, now=NOW)
+    assert 0 < len(loaded.planned) <= loaded.config.max_requests
+
+
+def test_init_reports_a_write_failure_instead_of_crashing(tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)  # readable and searchable, not writable
+    try:
+        result = invoke("scope", "init", str(locked / "scope.yaml"))
+    finally:
+        locked.chmod(0o700)
+    assert result.exit_code == 1 and "POLICY-003" in result.output and "could not write" in result.output
+    assert not (locked / "scope.yaml").exists()
+
+
+def test_init_never_writes_a_starter_that_the_tool_itself_would_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scopedagent.cli as module  # noqa: PLC0415
+
+    monkeypatch.setattr(module, "starter_scope", lambda now: "engagement_id: x\n")  # not a valid scope
+    path = tmp_path / "scope.yaml"
+    result = invoke("scope", "init", str(path))
+    assert result.exit_code == 1 and "SCOPE-003" in result.output and not path.exists()
