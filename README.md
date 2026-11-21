@@ -4,9 +4,9 @@ An auditable, **local-first** assistant that collects bounded reconnaissance evi
 targets, keeps that evidence tamper-evident and redacted, and drafts observations that **a human must review**.
 It is not an autonomous exploitation agent and it never decides that something is a vulnerability.
 
-**Status: pre-alpha, milestones M0 to M5.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
+**Status: pre-alpha, milestones M0 to M6.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
 YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: `run`
-opens no network connection, and live mode is deliberately not built. The one optional exception is an AI wording step that is **off by
+opens no network connection. Live remote collection exists (`live run`, `docs/remote-live-design.md`) but is **not yet exercised on a real container** and must not be pointed at anything you do not own. The one optional exception is an AI wording step that is **off by
 default** (below). The contract is in `docs/`; each document states the rules it applies.
 
 ## What it does

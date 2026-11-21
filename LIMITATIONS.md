@@ -89,6 +89,19 @@ milestone. Residual risks are listed, not hidden.
 * **SE-40 The `{name}` values are listed, not discovered.** Only the values the scope lists are asked, up to five per parameter and four
   parameters per endpoint. The tool never walks a range, a sequence or a wordlist, and a spec's own endpoints are inventory, never a
   request.
+* **SE-41 The container isolation has not been exercised on a real container by me.** Everything around it is tested (the gates, the
+  address policy, the proof gate, the output validation, the leak guard, the collector over loopback); the firewall and the self-test run
+  only in a real container, which needs Linux or Docker through Colima. `tests/container` and a CI job exist to do it. Until you or CI have
+  seen them pass, live mode is not to be pointed at anything you do not own (D-E46).
+* **SE-42 The address policy cannot tell whose address it is.** A public address may belong to a CDN, a shared host or a client's
+  neighbour. The scope's hosts are the ones you wrote; the tool pins what they resolve to and cannot know who else answers there.
+* **SE-43 Authorization is a declaration.** The block, the flag and the approval are a deliberate pause and a record; in a single-user tool
+  they are the same person. The tool cannot verify that anyone authorized the test (SE-03).
+* **SE-44 Live mode collects only a little in this version.** DNS, TLS, HTTP metadata, AI model lists and API reads; `ai_probe` is refused
+  (D-E74); a credential is a bearer token for one declared host; there are no cookies, logins, proxies, redirects or keychain support.
+* **SE-45 The clock is yours.** The authorization window and approval expiry use the local clock.
+* **SE-46 What a CNAME or a redirect says is data.** It is recorded and never contacted: a target that points elsewhere is a finding for a
+  person, and the scope grows only when you edit it.
 * **SE-32 The model can only reword, and it can reword badly.** The checks keep every number, date, version, header name, path and host
   of the rule's sentence and refuse verdict words, markup and anything over the length limit, but they cannot tell that a sentence still
   *means* the same. A plausible but slightly wrong wording passes. That is why the rule's own text is always shown first and the wording

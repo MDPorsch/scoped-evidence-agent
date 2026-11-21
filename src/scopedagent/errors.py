@@ -40,6 +40,14 @@ class ErrorCode(StrEnum):
     STATE_004 = "STATE-004"  # a review needs a reviewer, a reason and evidence
     AI_001 = "AI-001"  # the AI configuration is unreadable, unsafe or not valid
     AI_002 = "AI-002"  # the model is off, or its key is not set
+    LIVE_001 = (
+        "LIVE-001"  # live mode cannot run here: no container runtime, no pinned image, or the platform cannot isolate
+    )
+    LIVE_002 = (
+        "LIVE-002"  # live mode is refused: authorization, acknowledgement, approval, window or a credential is missing
+    )
+    LIVE_003 = "LIVE-003"  # the isolation self-test did not pass, so nothing was collected
+    LIVE_004 = "LIVE-004"  # the sandbox's output was refused (a stray file, a bad envelope, a leak)
     REPORT_001 = "REPORT-001"  # a report cannot be written where it was asked to go
     BUDGET_001 = "BUDGET-001"  # the request budget is spent
     AUDIT_001 = "AUDIT-001"  # the audit chain is broken
@@ -87,6 +95,18 @@ class ReportError(ScopedAgentError):
 
 class AiError(ScopedAgentError):
     exit_code = 1
+
+
+class LiveRefused(ScopedAgentError):
+    """Live mode will not start or continue: a policy decision, like a refused scope (exit 1)."""
+
+    exit_code = 1
+
+
+class LiveFailed(ScopedAgentError):
+    """Live mode could not do its job: no runtime, a failed proof, a refused sandbox result (exit 2)."""
+
+    exit_code = 2
 
 
 class StoreError(ScopedAgentError):

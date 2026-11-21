@@ -130,8 +130,8 @@ def test_every_row_of_every_table_is_the_same_after_the_upgrade(
 ) -> None:
     data_dir = old_database(tmp_path, source_rows)
     assert revision(data_dir.db_path) == "0003" and dump(data_dir.db_path) == source_rows
-    assert upgrade_database(data_dir) == "0004"
-    assert revision(data_dir.db_path) == "0004" and dump(data_dir.db_path) == source_rows
+    assert upgrade_database(data_dir) == HEAD_REVISION
+    assert revision(data_dir.db_path) == HEAD_REVISION and dump(data_dir.db_path) == source_rows
 
 
 def test_the_audit_chain_of_each_run_still_verifies_and_no_row_refers_to_a_missing_one(
@@ -211,8 +211,8 @@ def test_the_upgraded_tables_are_exactly_those_of_a_new_database_and_nothing_els
     after, new = master(data_dir.db_path), master(fresh.db_path)
     assert after == new  # every table, index and trigger, byte for byte
     changed = {name for name in before if before[name] != after.get(name)}
-    assert changed == {"targets", "observations"}, changed
-    assert set(before) == set(after)
+    assert changed == {"targets", "observations"}, changed  # of what 0003 had: 0005 only adds tables
+    assert set(before) <= set(after)
 
 
 def test_upgrading_a_current_database_changes_nothing_and_makes_no_copy(
@@ -232,10 +232,10 @@ def test_a_database_that_has_to_change_is_copied_aside_first_privately_and_compl
 ) -> None:
     data_dir = old_database(tmp_path, source_rows)
     new_revision, backup = upgrade_database_with_backup(data_dir)
-    assert new_revision == "0004" and backup == data_dir.root / "evidence.sqlite.before-0003"
+    assert new_revision == HEAD_REVISION and backup == data_dir.root / "evidence.sqlite.before-0003"
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
     assert revision(backup) == "0003" and dump(backup) == source_rows  # the database exactly as it was
-    assert revision(data_dir.db_path) == "0004"
+    assert revision(data_dir.db_path) == HEAD_REVISION
 
 
 def test_a_copy_never_replaces_an_older_one(tmp_path: Path, source_rows: dict[str, list[tuple[Any, ...]]]) -> None:
@@ -372,7 +372,7 @@ def test_an_empty_database_at_revision_0003_upgrades_too(tmp_path: Path) -> None
     data_dir.root.mkdir(mode=0o700)
     data_dir.db_path.touch(mode=0o600)
     command.upgrade(_alembic_config(data_dir.db_path), "0003")
-    assert upgrade_database(data_dir) == "0004" and load_pack(FIXTURES / "web_responses" / "api-orders.yaml")
+    assert upgrade_database(data_dir) == HEAD_REVISION and load_pack(FIXTURES / "web_responses" / "api-orders.yaml")
 
 
 def test_the_upgrade_command_says_where_the_copy_of_the_old_database_is(
@@ -384,7 +384,7 @@ def test_the_upgrade_command_says_where_the_copy_of_the_old_database_is(
 
     data_dir = old_database(tmp_path, source_rows)
     out = CliRunner().invoke(app, ["db", "upgrade", "--data-dir", str(data_dir.root)])
-    assert out.exit_code == 0 and "database ready: revision 0004" in out.output
+    assert out.exit_code == 0 and "database ready: revision 0005" in out.output
     assert (
         f"kept at {data_dir.root}/evidence.sqlite.before-0003" in out.output
         and "delete it when you are sure" in out.output

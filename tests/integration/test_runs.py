@@ -15,6 +15,7 @@ from scopedagent.policy.scope import parse_scope
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.repositories import create_run, list_runs, register_engagement, retry_run, transition_run
 from tests.support import NOW, dump, healthy_loaded, make_database, run_in_state, scope_dict, scope_text
+from tests.unit.test_scope_live import live_dict
 
 pytestmark = pytest.mark.milestone("M1")
 
@@ -123,9 +124,8 @@ def test_a_model_cannot_create_a_run(db: Any) -> None:
     assert caught.value.code is ErrorCode.STATE_003
 
 
-def test_a_live_scope_cannot_create_a_run_in_this_version(db: Any) -> None:
-    data = scope_dict()
-    data["mode"] = "live"
+def test_a_live_scope_cannot_create_an_offline_run(db: Any) -> None:
+    data = live_dict()
     with db.begin() as session:
         engagement = register_engagement(session, parse_scope(dump(data), now=NOW), now=NOW)
     with pytest.raises(PolicyError) as caught, db.begin() as session:

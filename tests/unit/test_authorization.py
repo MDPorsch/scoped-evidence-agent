@@ -11,6 +11,7 @@ from scopedagent.errors import ErrorCode, PolicyError, ScopeError
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE, check_run_allowed
 from scopedagent.policy.scope import parse_scope
 from tests.support import NOW, dump, scope_dict, scope_text
+from tests.unit.test_scope_live import live_dict
 
 pytestmark = pytest.mark.milestone("M1")
 
@@ -20,13 +21,16 @@ def test_a_current_offline_scope_may_run() -> None:
     check_run_allowed(loaded, now=NOW, expected_sha256=loaded.sha256)
 
 
-def test_live_mode_is_refused_in_this_version() -> None:
-    data = scope_dict()
-    data["mode"] = "live"
-    loaded = parse_scope(dump(data), now=NOW)
+def test_run_refuses_a_live_scope_and_live_run_refuses_an_offline_one() -> None:
+    loaded = parse_scope(dump(live_dict()), now=NOW)
     with pytest.raises(PolicyError) as caught:
         check_run_allowed(loaded, now=NOW, expected_sha256=loaded.sha256)
-    assert caught.value.code is ErrorCode.POLICY_001 and caught.value.exit_code == 1
+    assert caught.value.code is ErrorCode.POLICY_001 and caught.value.exit_code == 1 and "live run" in str(caught.value)
+    check_run_allowed(loaded, now=NOW, expected_sha256=loaded.sha256, live=True)  # the live command accepts it
+    offline = parse_scope(scope_text(), now=NOW)
+    with pytest.raises(PolicyError) as caught:
+        check_run_allowed(offline, now=NOW, expected_sha256=offline.sha256, live=True)
+    assert caught.value.code is ErrorCode.POLICY_001 and "mode live" in str(caught.value)
 
 
 def test_a_scope_that_expired_after_validation_is_refused_at_run_time() -> None:

@@ -151,6 +151,24 @@ decides (SE-06).
 
 *Residual:* nothing has been run against a real API; the pack is mine (SE-37). A short field name can itself be an identifier (SE-38).
 
+### T8. Live remote collection (M6; `docs/remote-live-design.md`)
+
+| Vector | Control | Tests |
+|---|---|---|
+| A typo or a copied scope sends traffic or a key to the wrong host | exact listed hosts (at most 10), a window, `--ack-authorization` on every run, an approval bound to the scope hash; every gate runs before a name is resolved | LV-01, LV-02 |
+| SSRF: the name resolves to loopback, a private range or the metadata address | every address judged (public by default, private only if listed, never-ranges whatever is listed) **and** a default-deny firewall built from the same allow-list | LV-03, LV-05 |
+| DNS rebinding | one resolution per host, pinned addresses, no DNS in the container, the peer address read back before a byte is sent | LV-03, LV-06 |
+| The policy code has a bug | the firewall still refuses, and the self-test proves it before the job is sent; the run is refused unless every check passed and the allow-list is the one sent | LV-05, LV-07 |
+| A redirect or CNAME widens the scope | recorded as data; never followed or resolved | LV-06 |
+| A hostile response attacks the parser or the operator | parsing happens in the container; the controller accepts two kinds of file, strict envelopes, re-redacted artifacts | LV-08 |
+| A key leaks into evidence | passed by environment-variable name, sent only to the declared host over verified TLS, and a guard that fails the run on any of six encodings in any stored byte | LV-09 |
+| A key goes over a broken or downgraded connection | verified TLS 1.2+ before any request byte; a failed verification sends nothing | LV-06 |
+| Load or cost on the client | a rate (default 2, at most 10 a second), serial requests, the scope's budget as a hard stop on what is sent | LV-10 |
+| Run outside the engagement or by accident from CI | the window, the acknowledgement and the approval; `run` can never start a live scope | LV-01, LV-02 |
+| The tool becomes a scanner | no discovery; at most 10 listed hosts; nothing learned from a target is contacted | LV-03 |
+
+*Residual:* the real container isolation has not been exercised by me (SE-41); a public address cannot be pinned to "the client's" machine (SE-42); authorization is a declaration (SE-43).
+
 ## 5. Other threats
 
 | Threat | Control | Tests |

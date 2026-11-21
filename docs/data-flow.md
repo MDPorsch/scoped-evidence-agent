@@ -46,7 +46,7 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 
 ## What leaves the machine
 
-In 0.x, **nothing by default**. `run` makes no network call. The optional model adapter (M4) is off until `ai enable`, and only
+In 0.x, **nothing by default**. A live run (`live run`, M6) sends requests to the hosts a live scope declares, from inside an isolated container, to pinned addresses only; the controller sends the container an allow-list first and a job only after the isolation proof, and what comes back is validated and scanned for credentials before it is stored. `run` makes no network call. The optional model adapter (M4) is off until `ai enable`, and only
 `findings reword` and `ai test` ever call it. What it sends is **a draft's own rule sentences** (conditions, preconditions, unknowns,
 attacker position, basis, remediation, severity basis), with the engagement's host names replaced by placeholders: never an observation,
 an artifact, a header, a body, a certificate, a credential, the scope file or a reviewer's words. It goes to `api.anthropic.com` through the

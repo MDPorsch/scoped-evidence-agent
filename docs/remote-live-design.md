@@ -1,7 +1,9 @@
 # Live remote mode: design for your review
 
-**Status: approved by the owner on 2026-11-20 (D-E37 to D-E47). No network code exists yet:** by D-E47 it is built last (M5), after
-the offline collectors, test-first, and then stops again for review. You asked for this tool to work
+**Status: approved by the owner on 2026-11-20 (D-E37 to D-E47). Built in M6 (this change), as the last milestone, and stopped for
+review. It has been exercised only against loopback servers and with the container replaced by a stand-in: the real container isolation
+has NOT been exercised (D-E46; see "How it is built" at the end).** By D-E47 it is built last, after the offline collectors,
+test-first, and then stops again for review. You asked for this tool to work
 against remote, authorized targets too. That changes **egress** (the tool opens connections to networks you do not control),
 **token handling** (an AI endpoint's API key crosses a network) and, for AI probes, **what the tool sends** (a POST). You told me
 to stop and review changes like these before they ship, and the spec says the same: live mode is optional, separate, and not
@@ -220,3 +222,34 @@ container), before anything is called safe.
 2. Offline M2 (adapters), M3 (correlator, reports) and M4 (optional AI) are built and verified first.
 3. M5 implements this design, tests first, then the real-container exercise on the lab target, then stops again for your review.
 4. Any real remote use, including a client system, is your decision and happens after that.
+
+## 10. How it is built (M6) and what is not yet proved
+
+| Piece | Where | What it does |
+|---|---|---|
+| Address policy | `live/addresses.py` | The `boundarycheck` rules: public by default, private only if the scope lists the range, a few ranges never; every address of a host must pass |
+| Scope blocks | `policy/scope.py` | `authorization` (engagement, window) and `egress` (ranges, rate) in a `mode: live` scope; at most 10 hosts; they join the hash |
+| Approvals | `storage/approvals.py`, migration `0005` | `approvals grant\|list\|revoke`: bound to one scope hash, an expiry, append-only, typed confirmation |
+| Controller | `live/controller.py` | gates, one resolution per host, the proof gate, validation of the sandbox output, then the **same run pipeline** as an offline run |
+| Container | `live/runtime.py`, `live/isolation.py`, `docker/collector/Dockerfile` | the whole posture in one command; firewall, self-test, privilege drop, proof, then the job |
+| Collector | `live/collector.py` | the only program that connects: pinned address, peer read back, verified TLS first, serial, rate limited, normalised by the offline adapters |
+| Validation | `live/outputcheck.py`, `live/leakguard.py` | only `result-N.json` and `artifact-N.bin`, strict, re-redacted, scanned for every credential in six encodings |
+
+The order inside a run: gates (scope mode, window, `--ack-authorization`, a matching unexpired approval, every `--credential` present) →
+each host resolved **once** and judged → the container is started with no route out and given only the allow-list → it installs the
+firewall, runs the self-test, drops every privilege and reports → the controller refuses to continue unless every check passed and the
+allow-list is the one it sent → only then is the job sent → the output is validated and scanned → stored through `execute_run` (budget,
+observations, artifacts, rules, audit) → the proof, the hosts and the approval are recorded with the run and quoted in the report.
+A run whose proof fails never exists.
+
+### Decisions made in the build (to review; the stop for review is D-E47)
+
+| ID | Decision |
+|---|---|
+| D-E74 | **`ai_probe` is refused in live mode in this version** (`SCOPE-011`). The probe texts need their own reviewed change (D-E30); nothing that a model or a scope could shape is sent. Live mode collects DNS, TLS, HTTP, AI model lists (GET) and API reads (GET, HEAD, OPTIONS). |
+| D-E75 | **Credentials are named on the command line, never in the scope:** `--credential support-bot=ENVVAR` for an AI target, `--credential orders-api/tenant-a-user=ENVVAR` for an API principal (D-E51). The value is read from the environment, passed to the container by variable name (never in an argument), sent only as `Authorization: Bearer` to the declared host over verified TLS, and guarded. A principal other than `anonymous` without one is refused before anything starts. |
+| D-E76 | **The collector speaks HTTP/1.0 with a `Host` header,** `Connection: close`, `Accept-Encoding: identity`: no chunked framing, no keep-alive, no redirects, no proxy, no cookie. It is deliberately the smallest client that can do the job. |
+| D-E77 | **The stored adapter names stay `offline_*`:** they name the normalisers, which are shared. A live run is marked by `runs.mode = live` and its `live_runs` row. In a live run the stored source hash is the SHA-256 of the sandbox's own source-hash line (the controller never sees the bytes). |
+| D-E78 | **The controller proves before it sends:** the allow-list goes in first, the proof comes out, and the job (with its credentials' *names*) is sent only after the proof is verified. There is no flag that skips it. |
+| D-E79 | **Certificates are parsed with `cryptography`, installed in the container image only** (the `live` extra); the controller and the offline tool do not need it. |
+| D-E80 | **Not called safe.** The real container has not been exercised here (no container runtime was running); `tests/container` and a CI job (`live isolation (real container)`) exist to do it on Linux, and the report of a live run states the proof it got. The first real exercise should be against a lab target you own, before anything else. |

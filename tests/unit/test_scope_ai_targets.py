@@ -556,9 +556,11 @@ def test_the_global_request_budget_may_still_be_smaller_than_the_plan() -> None:
     assert len(accepted(data).planned) == 5
 
 
-def test_live_mode_parses_for_an_ai_scope_too() -> None:
+def test_live_mode_parses_for_an_ai_scope_that_only_reads_metadata() -> None:
     data = ai_scope_dict()
-    data["mode"] = "live"
+    data.update(mode="live", authorization={"engagement": "ACME-2026-114", "not_after": "2026-12-04T23:59:59Z"})
+    data["allowed_operations"] = ["ai_metadata"]
+    data["ai_targets"][0].update(operations=["ai_metadata"], probe_path=None, probe_sets=[], test_categories=[])
     assert accepted(data).config.mode == "live"
 
 

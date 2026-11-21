@@ -135,3 +135,21 @@ bug in each guarded line, and its result for M1 is in `docs/milestones/M1.md`.
 | AP-14 | A scope without API targets keeps its hash; every API field is part of the hash; the order of a `params` mapping changes neither hash nor plan | `unit/test_scope_api_targets.py` | **Covered** |
 | AP-15 | `access-control-allow-credentials` survives redaction and reaches rule R-CORS-01; only that exact name is exempt | `unit/test_redact.py`, `integration/test_findings_pipeline.py` | **Covered** |
 
+## Live remote mode (M6; D-E37 to D-E47, `docs/remote-live-design.md`)
+
+| ID | Invariant | Covered by | Status |
+|---|---|---|---|
+| LV-01 | A live scope declares an authorization; an offline scope may not; `run` refuses a live scope and `live run` an offline one; the window, the acknowledgement and a matching approval are all required, each before anything is resolved or started | `unit/test_scope_live.py`, `unit/test_authorization.py`, `integration/test_live_controller.py`, `integration/test_live_cli.py` | **Covered** |
+| LV-02 | An approval is a human's record bound to one scope hash, with an expiry, revocable, never editable; editing the scope invalidates it | `integration/test_approvals.py` | **Covered** |
+| LV-03 | Every address a host resolves to must pass; one bad one refuses the host; a refused host is not contacted and its operations are recorded as refused; each host is resolved once | `unit/test_live_addresses.py`, `unit/test_live_small_parts.py`, `integration/test_live_controller.py` | **Covered** |
+| LV-04 | Live mode names at most ten hosts and cannot list `ai_probe` | `unit/test_scope_live.py` | **Covered** |
+| LV-05 | The firewall is default deny both ways and permits exactly the pinned pairs; the self-test must show forbidden destinations unreachable, no name resolution, no capability, and every pair permitted | `unit/test_live_isolation_runtime.py`; on a real container: `container/test_container_isolation.py` | **Covered** by logic tests; **the real container is not yet exercised** (SE-41) |
+| LV-06 | The collector connects only to the pinned address, confirms the peer, verifies TLS 1.2+ before sending anything, follows no redirect, sends a credential only when given, and records a failure | `unit/test_live_collector.py` (loopback) | **Covered** |
+| LV-07 | The controller refuses to send the job unless every check passed and the allow-list is the one it sent; a failed proof leaves no run | `integration/test_live_controller.py` | **Covered** |
+| LV-08 | Only result and artifact files are accepted, validated against what was planned, hashed, re-redacted and size capped; a stray file, a link or a swapped envelope refuses the whole directory | `unit/test_live_outputcheck.py`, `integration/test_live_controller.py` | **Covered** |
+| LV-09 | A credential reaches only the declared host, by variable name, and is in no stored byte; an echo of it (plain or encoded) fails the run | `unit/test_live_small_parts.py`, `integration/test_live_controller.py` | **Covered** |
+| LV-10 | The request budget is a hard stop for what is sent, and the rate comes from the scope | `integration/test_live_controller.py`, `unit/test_live_small_parts.py` | **Covered** |
+| LV-11 | The container command holds the whole posture (image by digest, read-only root, no new privileges, capabilities dropped, limits, one mount, credentials by name) | `unit/test_live_isolation_runtime.py` | **Covered** |
+| LV-12 | The package opens no network socket outside three named modules, and `run` reaches no live code | `negative/test_no_network.py` | **Covered** |
+| LV-13 | A database at `0004` upgrades to `0005` and keeps its data | `integration/test_approvals.py` | **Covered** |
+
