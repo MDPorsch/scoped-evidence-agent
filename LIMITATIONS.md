@@ -46,8 +46,8 @@ milestone. Residual risks are listed, not hidden.
   dangerous. A human decides.
 * **SE-18 Probe consumption is bounded by the scope, not measured live.** The worst case is computed from the limits you wrote. A
   target that bills differently, counts tokens differently or ignores a token limit is outside what this tool can see.
-* **SE-19 A complete collection with no correlation is exit code 0.** Until the correlator exists (M3), a run that collected everything
-  it planned exits `0` and drafts nothing. That is not evidence that nothing is wrong; the run prints a note saying so.
+* **SE-19 A complete collection with no draft is exit code 0.** A run that collected everything it planned and applied every rule, and
+  found nothing, exits `0` and drafts nothing. That is not evidence that nothing is wrong; the run prints a note saying so (SE-24).
 * **SE-20 Redaction is pattern-based.** A secret in a shape no pattern knows (a custom token format, a password in prose, a value
   split across lines) is stored. Header names, key=value pairs, private-key blocks and common token shapes are covered; see
   `docs/fixture-format.md`. Review what a run stored (`observations show`) before sharing it.
@@ -58,3 +58,24 @@ milestone. Residual risks are listed, not hidden.
 * **SE-23 A parsed document keeps only a few named facts, and the longest lists are cut to fit.** A very large `robots.txt` or OpenAPI
   document is summarised (first entries kept, last dropped) so it is collected rather than refused; the stored artifact keeps the
   redacted text up to the scope's byte limit.
+* **SE-24 No draft is not no flaw.** The version-1 catalogue has twelve rules (`docs/correlator.md`). It does not cover an expired
+  `security.txt`, cookie attributes (cookie values are redacted whole), cache headers, CSP quality, mixed content, certificate chain
+  validity beyond the flags listed, authorization flaws, or anything that needs a request the scope does not list. A rule can also fire
+  on something harmless: every draft is for a person to read.
+* **SE-25 Facts are quoted only when they have a strict shape.** A banner, a path, a host or a scheme name that is long or unusual is
+  counted in the draft's condition but not shown, so a reader may need `observations show` to see what a target sent.
+* **SE-26 Severity is not decided.** A draft carries a suggested severity with its basis; the tool's own severity is `unknown`, and
+  nothing in 0.x stores a person's. Confidence is a rule's table value, not a measured probability.
+* **SE-27 `not_exploitable` is recorded as a false positive.** The status `FALSE_POSITIVE` closes the finding; the review row keeps the
+  exact decision and the reason. `inconclusive` leaves it open and can be repeated.
+* **SE-28 Identity is typed.** `--reviewer` is a name the person gives, in line with identity as attribution (D-E06); the typed
+  confirmation stops an accident or a script by habit, not a determined person with the database.
+* **SE-29 Reports are not audited, and a run is never closed.** Exporting changes nothing, so it adds no audit event; the run is never
+  moved to `EXPORTED`. Who exported what is the file system's business. A reviewer's name and reason are included, redacted for secrets
+  but otherwise as typed.
+* **SE-30 A path through a symbolic link is refused for a report,** including a system directory that is itself a link (`/tmp` on macOS).
+  Use the real path.
+* **SE-31 The step list is advice.** Validation steps are text built from templates. The tool does not run them (offline it cannot), and
+  `rerun_library_probe` and `check_cors_for_declared_origin` cannot be acted on in 0.x (they need live mode, and a scope that declares
+  an origin, which arrives with API targets).
+

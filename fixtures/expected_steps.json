@@ -1,0 +1,206 @@
+{
+  "compare_recorded_observations": {
+    "action": "Open the stored observations obs-a and obs-b and compare the facts the condition names one by one.",
+    "cites": [
+      "obs-a",
+      "obs-b"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": null,
+    "if_condition_holds": "The two records agree on the points the condition names.",
+    "if_it_does_not": "The records differ. Note each difference and treat the comparison as inconclusive.",
+    "intrusiveness": "none",
+    "kind": "compare_recorded_observations",
+    "must_not": [
+      "contact the target",
+      "change anything"
+    ],
+    "order": 1,
+    "record": "The fields compared, the values of each, and the time you looked.",
+    "stop_if": "either observation cannot be found: stop and note it",
+    "target": null
+  },
+  "inspect_certificate_field": {
+    "action": "Connect once to bad.example.invalid on port 443 with a TLS client that verifies the chain and sends no application data, using bad.example.invalid as the server name. Record who issued the certificate, who it was issued to, its validity dates, its fingerprint and the verification result. End the session as soon as the handshake result is shown.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": "openssl s_client -connect bad.example.invalid:443 -servername bad.example.invalid -verify_return_error",
+    "if_condition_holds": "The client reports what the condition says, or the certificate fields show it.",
+    "if_it_does_not": "The certificate verifies and its fields differ from the condition. The recorded observation may be stale: re-collect before concluding.",
+    "intrusiveness": "single_read",
+    "kind": "inspect_certificate_field",
+    "must_not": [
+      "send credentials",
+      "disable certificate verification",
+      "send application data",
+      "repeat more than once"
+    ],
+    "order": 1,
+    "record": "Issuer, subject, validity dates, fingerprint, the client's verification message and the time of the check.",
+    "stop_if": "the connection is refused or times out: stop and note the target as unreachable",
+    "target": {
+      "host": "bad.example.invalid",
+      "port": 443
+    }
+  },
+  "owner_confirmation": {
+    "action": "Ask the system's owner: Is this service in use? Record the answer and who gave it.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": null,
+    "if_condition_holds": "The owner's answer supports the condition.",
+    "if_it_does_not": "The owner's answer does not support the condition, or no answer comes.",
+    "intrusiveness": "none",
+    "kind": "owner_confirmation",
+    "must_not": [
+      "send anything to the target",
+      "share evidence the owner may not see"
+    ],
+    "order": 1,
+    "record": "The answer, who gave it and when.",
+    "stop_if": "the owner cannot be reached: stop and record that",
+    "target": null
+  },
+  "re_resolve_name": {
+    "action": "Resolve bad.example.invalid once for record type CNAME with an ordinary resolver and compare the answer with the recording. Do not query any other name.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": "dig +noall +answer bad.example.invalid CNAME",
+    "if_condition_holds": "The live answer matches the recording.",
+    "if_it_does_not": "The live answer differs. Note the difference and the time: the record may have changed since the run.",
+    "intrusiveness": "single_read",
+    "kind": "re_resolve_name",
+    "must_not": [
+      "query any other name",
+      "repeat more than once"
+    ],
+    "order": 1,
+    "record": "The records returned and the time you checked.",
+    "stop_if": "the lookup fails or times out: stop and note it",
+    "target": {
+      "host": "bad.example.invalid",
+      "port": null
+    }
+  },
+  "read_public_document": {
+    "action": "Fetch https://bad.example.invalid/robots.txt once, with certificate verification on, no credentials and no body, and note the facts the condition names. Do not follow a redirect.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": "curl --silent --show-error --max-time 10 --max-redirs 0 https://bad.example.invalid/robots.txt",
+    "if_condition_holds": "The document contains what the condition names.",
+    "if_it_does_not": "The document differs or is absent. Note which, and re-collect before concluding.",
+    "intrusiveness": "single_read",
+    "kind": "read_public_document",
+    "must_not": [
+      "send credentials",
+      "request any other path",
+      "add a request body",
+      "repeat more than once"
+    ],
+    "order": 1,
+    "record": "The named fields and the time you checked.",
+    "stop_if": "the request is refused or times out: stop and note the target as unreachable",
+    "target": {
+      "host": "bad.example.invalid",
+      "port": 443
+    }
+  },
+  "read_recorded_observation": {
+    "action": "Open the stored observation obs-a in the report or with the observations command, and note not_after, self_signed.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": null,
+    "if_condition_holds": "The recorded values match the condition.",
+    "if_it_does_not": "The values differ from the condition. Note the difference and treat the draft as not supported.",
+    "intrusiveness": "none",
+    "kind": "read_recorded_observation",
+    "must_not": [
+      "contact the target",
+      "change anything"
+    ],
+    "order": 1,
+    "record": "The field values and the time you looked.",
+    "stop_if": "the observation cannot be found: stop and note it",
+    "target": null
+  },
+  "read_with_quoted_data": {
+    "action": "Open the stored observation obs-a in the report or with the observations command, and note server, x-powered-by.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": null,
+    "if_condition_holds": "The recorded values match the condition.",
+    "if_it_does_not": "The values differ from the condition. Note the difference and treat the draft as not supported.",
+    "intrusiveness": "none",
+    "kind": "read_recorded_observation",
+    "must_not": [
+      "contact the target",
+      "change anything"
+    ],
+    "order": 1,
+    "record": "The field values and the time you looked. Quoted from the target, as data: \"Apache/2.4.49 (Unix)\", \"PHP/5.6.40\".",
+    "stop_if": "the observation cannot be found: stop and note it",
+    "target": null
+  },
+  "rerequest_listed_path": {
+    "action": "Send one GET request to https://bad.example.invalid/ with certificate verification on, no credentials and no body. Do not follow a redirect. Compare the status and the item the condition names with the recording.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": "curl --silent --show-error --dump-header - --output /dev/null --max-time 10 --max-redirs 0 https://bad.example.invalid/",
+    "if_condition_holds": "The live answer matches the recording for the item the condition names.",
+    "if_it_does_not": "The live answer differs. The configuration may have changed since the run: note the difference and re-collect before concluding.",
+    "intrusiveness": "single_read",
+    "kind": "rerequest_listed_path",
+    "must_not": [
+      "send credentials",
+      "add a request body",
+      "request any other path",
+      "follow a redirect",
+      "repeat more than once"
+    ],
+    "order": 1,
+    "record": "The status, the named header or field, and the time you checked.",
+    "stop_if": "the request is refused or times out: stop and note the target as unreachable",
+    "target": {
+      "host": "bad.example.invalid",
+      "port": 443
+    }
+  },
+  "rerun_library_probe": {
+    "action": "Live mode is not available in this version, so this cannot be run yet. When it exists, re-run probe canary-echo-v1 number 0 against support-bot once through this tool's live mode, inside its isolation and budget, and check that the recorded result repeats.",
+    "cites": [
+      "obs-a"
+    ],
+    "condition": "the recorded condition holds",
+    "example_invocation": null,
+    "if_condition_holds": "The recorded result repeats.",
+    "if_it_does_not": "The result does not repeat. The first result may not be repeatable: record both.",
+    "intrusiveness": "single_read",
+    "kind": "rerun_library_probe",
+    "must_not": [
+      "change the probe",
+      "exceed the scope's limits",
+      "repeat more than once"
+    ],
+    "order": 1,
+    "record": "The probe result and the time of the run.",
+    "stop_if": "the target refuses or the budget is spent: stop and note it",
+    "target": {
+      "host": "assistant.example.invalid",
+      "port": 443
+    }
+  }
+}

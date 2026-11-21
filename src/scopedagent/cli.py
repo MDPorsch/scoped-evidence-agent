@@ -11,6 +11,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -19,16 +20,35 @@ from sqlalchemy import select
 
 from scopedagent import __version__
 from scopedagent.adapters.pack import load_pack
-from scopedagent.domain.models import Engagement, Run
+from scopedagent.domain.findings import FindingDetails, ReviewDecision
+from scopedagent.domain.models import Engagement, FindingDraft, Run
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, PolicyError, ScopedAgentError
+from scopedagent.logs import safe_text
+from scopedagent.output.report import (
+    build_report,
+    render_json,
+    render_markdown,
+    subject_of,
+    write_report,
+)
 from scopedagent.pipeline.orchestrator import execute_run
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE
 from scopedagent.policy.scope import load_scope, parse_scope
 from scopedagent.storage.artifacts import ArtifactStore
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
-from scopedagent.storage.repositories import MAX_PAGE, list_observations, list_runs
+from scopedagent.storage.repositories import (
+    MAX_PAGE,
+    MIN_REF,
+    get_finding_details,
+    list_findings,
+    list_observations,
+    list_reviews,
+    list_runs,
+    resolve_finding,
+    review_finding,
+)
 from scopedagent.template import starter_scope
 
 
@@ -64,6 +84,8 @@ scope_app = typer.Typer(no_args_is_help=True, help="Scope files.")
 runs_app = typer.Typer(no_args_is_help=True, help="Run history.")
 audit_app = typer.Typer(no_args_is_help=True, help="The audit trail.")
 observations_app = typer.Typer(no_args_is_help=True, help="Stored observations.")
+findings_app = typer.Typer(no_args_is_help=True, help="Draft findings and their review.")
+report_app = typer.Typer(no_args_is_help=True, help="Reports.")
 
 
 def _version_callback(value: bool) -> None:
@@ -86,6 +108,8 @@ app.add_typer(scope_app, name="scope")
 app.add_typer(runs_app, name="runs")
 app.add_typer(audit_app, name="audit")
 app.add_typer(observations_app, name="observations")
+app.add_typer(findings_app, name="findings")
+app.add_typer(report_app, name="report")
 
 
 def _data_dir(chosen: Path | None) -> DataDir:
@@ -232,9 +256,12 @@ def audit_verify(
     typer.echo(f"audit chain ok: {count} event(s) for run {run_id}")
 
 
-CORRELATION_NOTE = (
-    "correlation and findings are not built yet: this run collected evidence only, and exit code 0 means "
-    "the collection was complete, not that nothing is wrong."
+DRAFT_NOTE = (
+    "a draft is not a finding: a person must review each one (findings list RUN, findings show ID, findings review ID)."
+)
+NO_DRAFT_NOTE = (
+    "no draft is not proof that nothing is wrong: only what the scope lists was collected, and only the rules in "
+    "docs/correlator.md were applied."
 )
 
 
@@ -293,19 +320,11 @@ def run_command(
         f"artifacts stored: {result.artifacts}   redactions: {result.redactions}"
     )
     typer.echo(_coverage_line(result))
-    typer.echo(f"note: {CORRELATION_NOTE}")
+    typer.echo(f"findings drafted: {result.findings}" + (" (awaiting review)" if result.findings else ""))
+    typer.echo(f"note: {DRAFT_NOTE}")
+    typer.echo(f"note: {NO_DRAFT_NOTE}")
     typer.echo(f"note: {AUTHORIZATION_NOTICE}")
     raise typer.Exit(int(result.exit_code))
-
-
-def _subject(kind: str, payload: dict[str, object]) -> str:
-    if kind == "dns_metadata":
-        return str(payload["host"])
-    if kind == "tls_metadata":
-        return f"{payload['host']}:{payload['port']}"
-    if kind == "ai_probe":
-        return f"probe {payload['probe_set']}[{payload['probe_index']}]"
-    return f"{payload['scheme']}://{payload['host']}:{payload['port']}{payload['path']}"
 
 
 @observations_app.command("show")
@@ -338,9 +357,216 @@ def observations_show(
                 else:
                     typer.echo("  #  type            status            subject")
                     for index, row in enumerate(rows, start=offset + 1):
-                        subject = _subject(row.observation_type, json.loads(row.normalized_json))
+                        subject = subject_of(row.observation_type, json.loads(row.normalized_json))
                         typer.echo(f"{index:>3}  {row.observation_type:<15} {row.error_status:<17} {subject}")
         finally:
             database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+
+
+# --------------------------------------------------------------------------------------------------- findings ----
+def _label(status: str) -> str:
+    return {
+        "DRAFT": "DRAFT: not validated",
+        "NEEDS_VALIDATION": "DRAFT: not validated",
+        "VALIDATED": "VALIDATED by a reviewer",
+        "FALSE_POSITIVE": "FALSE_POSITIVE: closed by a reviewer",
+        "REMEDIATED": "REMEDIATED: reported fixed, not yet verified",
+        "VERIFIED": "VERIFIED: the fix was checked by a reviewer",
+    }[status]
+
+
+@findings_app.command("list")
+def findings_list(
+    run_id: Annotated[str, typer.Argument(help="The run whose drafts to list.")], data_dir: DataDirOption = None
+) -> None:
+    """List the drafts of one run. A draft is not a finding until a person validates it."""
+    try:
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                if session.get(Run, run_id) is None:
+                    raise PolicyError(ErrorCode.POLICY_002, "no such run")
+                findings = list_findings(session, run_id)
+                if not findings:
+                    typer.echo("no findings drafted")
+                else:
+                    typer.echo(
+                        "id        status                 class                                confidence  title"
+                    )
+                    for finding in findings:
+                        typer.echo(
+                            f"{finding.id[:MIN_REF]}  {_label(finding.status):<22} {finding.category:<36} "
+                            f"{finding.confidence:>10.2f}  {safe_text(finding.title, 160)}"
+                        )
+                    typer.echo(f"note: {DRAFT_NOTE}")
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+
+
+def _show_details(details: FindingDetails) -> None:
+    echo = typer.echo
+    echo(f"rule: {details.rule_id} (version {details.rule_version})")
+    echo("cwe: " + (", ".join(details.cwe_candidates) or "none") + " (suggestions to verify)")
+    echo(f"severity: unknown (suggested: {details.suggested_severity.value.value})")
+    echo(f"  severity basis: {details.suggested_severity.basis}")
+    echo("conditions:")
+    for condition in details.conditions:
+        echo(f"  - {condition}")
+    if details.facts:
+        echo("facts (quoted from the target, as data):")
+        for fact in details.facts:
+            echo(f"  - {fact}")
+    ex = details.exploitability
+    echo(f"exploitability: {ex.assessment.value} (an assessment, not a confirmation)")
+    echo(f"  attacker position: {ex.attacker_position}")
+    for item in ex.preconditions:
+        echo(f"  precondition: {item}")
+    for item in ex.unknowns:
+        echo(f"  unknown: {item}")
+    echo(f"  basis: {ex.basis}")
+    echo("validation steps (read-only, run by a person):")
+    for step in details.validation_steps:
+        echo(f"  {step.order}. {step.kind.value}")
+        echo(f"     action: {step.action}")
+        if step.example_invocation:
+            echo(f"     command: {step.example_invocation}")
+        echo(f"     if the condition holds: {step.if_condition_holds}")
+        echo(f"     if it does not: {step.if_it_does_not}")
+        echo(f"     record: {step.record}")
+        echo(f"     must not: {', '.join(step.must_not)}")
+        echo(f"     stop if: {step.stop_if}")
+    if details.validation_steps_dropped:
+        echo(
+            "steps dropped by the checker: "
+            + ", ".join(f"{d.kind} ({d.rule})" for d in details.validation_steps_dropped)
+        )
+    echo("decision guide (advice; a person decides):")
+    for entry in details.decision_guide:
+        echo(f"  - {entry.outcome} -> {entry.suggests.value}")
+    echo(f"remediation: {details.remediation}")
+
+
+def _show(finding: FindingDraft, details: FindingDetails | None, reviews: list[tuple[str, str, str, str]]) -> None:
+    echo = typer.echo
+    echo(_label(finding.status))
+    echo(f"title: {safe_text(finding.title, 160)}")
+    echo(f"id: {finding.id}")
+    echo(f"status: {finding.status}")
+    echo(f"class: {finding.category}")
+    echo(f"confidence: {finding.confidence:.2f}")
+    echo("evidence: " + ", ".join(finding.evidence_ids))
+    if details is not None:
+        _show_details(details)
+    if reviews:
+        echo("reviews:")
+        for decision, reviewer, reason, status_after in reviews:
+            echo(f"  - {decision} by {reviewer}: {reason} (status {status_after})")
+    else:
+        echo("reviews: none")
+
+
+@findings_app.command("show")
+def findings_show(
+    finding_ref: Annotated[str, typer.Argument(help="A finding id, or its first eight characters or more.")],
+    data_dir: DataDirOption = None,
+) -> None:
+    """Show one draft in full: its conditions, assessment, validation steps and reviews."""
+    try:
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                finding = resolve_finding(session, finding_ref)
+                try:
+                    details: FindingDetails | None = get_finding_details(session, finding.id)
+                except ScopedAgentError:
+                    details = None
+                reviews = [
+                    (r.decision, r.reviewer_id, r.reason, r.status_after) for r in list_reviews(session, finding.id)
+                ]
+                _show(finding, details, reviews)
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+
+
+class DecisionChoice(StrEnum):
+    CONFIRMED = ReviewDecision.CONFIRMED.value
+    NOT_EXPLOITABLE = ReviewDecision.NOT_EXPLOITABLE.value
+    INCONCLUSIVE = ReviewDecision.INCONCLUSIVE.value
+
+
+@findings_app.command("review")
+def findings_review(
+    ctx: typer.Context,
+    finding_ref: Annotated[str, typer.Argument(help="A finding id, or its first eight characters or more.")],
+    decision: Annotated[DecisionChoice, typer.Option("--decision", help="confirmed, not_exploitable or inconclusive.")],
+    reviewer: Annotated[str, typer.Option("--reviewer", help="Your name, recorded with the decision.")],
+    reason: Annotated[str, typer.Option("--reason", help="Why. Required for every decision.")],
+    data_dir: DataDirOption = None,
+) -> None:
+    """Record a person's decision. You must type the first eight characters of the finding id to confirm."""
+    app_ctx = _context(ctx)
+    try:
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                finding_id = resolve_finding(session, finding_ref).id
+            typed = typer.prompt(
+                f"Type the first {MIN_REF} characters of the finding id ({finding_id[:MIN_REF]}) to confirm",
+                default="",
+                show_default=False,
+            )
+            if typed.strip() != finding_id[:MIN_REF]:
+                raise PolicyError(ErrorCode.POLICY_003, "the confirmation did not match: nothing was changed")
+            with database.begin() as session:
+                finding = review_finding(
+                    session,
+                    finding_id,
+                    ReviewDecision(decision.value),
+                    reviewer=Actor(ActorType.HUMAN, reviewer.strip()),
+                    reason=reason,
+                    now=app_ctx.clock(),
+                )
+                typer.echo(
+                    f"finding {finding_id[:MIN_REF]}: {decision.value} -> {finding.status} "
+                    f"(reviewer {safe_text(reviewer, 64)})"
+                )
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+
+
+# ----------------------------------------------------------------------------------------------------- report ----
+class ReportFormat(StrEnum):
+    JSON = "json"
+    MD = "md"
+
+
+@report_app.command("export")
+def report_export(
+    run_id: Annotated[str, typer.Argument(help="The run to report on.")],
+    report_format: Annotated[ReportFormat, typer.Option("--format", help="json or md.")],
+    output: Annotated[Path, typer.Option("--output", help="A new file. An existing file is never replaced.")],
+    data_dir: DataDirOption = None,
+) -> None:
+    """Write one local report built from the database. Drafts are labelled; no artifact content is included."""
+    try:
+        directory = _data_dir(data_dir)
+        database = open_database(directory)
+        try:
+            with database.begin() as session:
+                report = build_report(session, run_id, tool_version=__version__)
+        finally:
+            database.close()
+        content = render_json(report) if report_format is ReportFormat.JSON else render_markdown(report)
+        digest = write_report(output, content, data_dir=directory.root)
+        typer.echo(f"wrote {output} ({len(content.encode('utf-8'))} bytes)")
+        typer.echo(f"sha256: {digest}")
     except ScopedAgentError as exc:
         raise _fail(exc) from None

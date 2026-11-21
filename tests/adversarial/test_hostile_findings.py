@@ -84,7 +84,13 @@ def test_no_text_a_target_chooses_can_put_an_unsafe_character_in_a_draft(
     observations = [
         tls(
             "TLSv1.0",
-            cert(subject_cn=cn, issuer_cn=cn, san_dns=[san], signature_algorithm=algorithm + "sha1", self_signed=True),
+            cert(
+                subject_cn=cn,
+                issuer_cn=cn,
+                san_dns=[san],
+                signature_algorithm=algorithm[:40] + "sha1",
+                self_signed=True,
+            ),
         ),
         http("/", 301, headers, redirect=location or None),
         http("/robots.txt", 200, {}, parsed={"user_agents": ["*"], "disallow": ["/admin" + d for d in disallow]}),

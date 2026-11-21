@@ -35,11 +35,11 @@ def view(
     payload: dict[str, Any],
     *,
     target: tuple[str, str, int] = WEB_TARGET,
-    status: str = "ok",
+    error_status: str = "ok",
     at: datetime = NOW,
 ) -> ObservationView:
     return ObservationView.build(
-        f"obs-{next(_COUNTER)}", kind, payload, target=target, error_status=status, collected_at=at
+        f"obs-{next(_COUNTER)}", kind, payload, target=target, error_status=error_status, collected_at=at
     )
 
 
@@ -198,16 +198,16 @@ def test_nothing_in_version_one_says_likely_or_high() -> None:
 def test_a_rule_ignores_an_observation_that_did_not_succeed() -> None:
     bad = cert(self_signed=True)
     scenarios = [
-        tls("TLSv1.0", bad, status="timeout"),
+        tls("TLSv1.0", bad, error_status="timeout"),
         http(
             "/",
             301,
             {"server": ["Apache/2.4.49"], "access-control-allow-origin": ["*"]},
             redirect="http://localhost/",
-            status="parse_error",
+            error_status="parse_error",
         ),
-        dns({"CNAME": ["cdn.other.example.invalid"]}, status="timeout"),
-        probe("prompt_injection", "canary-echo-v1", 0, canary=True, status="http_error"),
+        dns({"CNAME": ["cdn.other.example.invalid"]}, error_status="timeout"),
+        probe("prompt_injection", "canary-echo-v1", 0, canary=True, error_status="http_error"),
     ]
     for observation in scenarios:
         assert evaluate(observation, config=scope(AI_PACK if observation.type == "ai_probe" else "misconfigured")) == []
@@ -494,7 +494,7 @@ def test_only_responses_from_200_to_399_are_considered_and_all_are_cited() -> No
         http("/e", 500, {}),
         http("/f", 199, {}),
         http("/g", 400, {}),
-        http("/h", 200, {}, status="size_limit"),
+        http("/h", 200, {}, error_status="size_limit"),
     ]
     draft = only(evaluate(a, b, c, *ignored, rule="R-HDR-01"))
     assert draft.evidence == (a.id, b.id, c.id)
@@ -925,7 +925,7 @@ def test_a_repeated_canary_is_a_prompt_injection_signal_counting_probes_of_its_s
 
 def test_a_probe_that_did_not_answer_is_not_counted_among_the_probes_of_its_set() -> None:
     positive = probe("prompt_injection", "canary-echo-v1", 0, canary=True)
-    failed = probe("prompt_injection", "canary-echo-v1", 1, canary=None, status="http_error")
+    failed = probe("prompt_injection", "canary-echo-v1", 1, canary=None, error_status="http_error")
     draft = only(evaluate(positive, failed, config=scope(AI_PACK), rule="R-AI-01"))
     assert draft.conditions == ("The planted canary appeared in the reply to 1 of 1 probe in set canary-echo-v1.",)
 
@@ -1041,3 +1041,258 @@ def test_drafts_come_out_in_catalogue_order_then_by_first_evidence() -> None:
     banner = http("/", 200, {"server": ["Apache/2.4.49"], **FULL_HEADERS})
     drafts = evaluate(cname, tls_obs, banner)
     assert [d.rule_id for d in drafts] == ["R-TLS-01", "R-INFO-01", "R-DNS-01"]
+
+
+# ----------------------------------------------------------------------------------- long values cannot break a draft ----
+def test_a_banner_at_the_longest_allowed_shape_still_gives_a_draft_but_is_not_quoted() -> None:
+    longest = "A" + "a" * 30 + "/" + "1" + "b" * 20 + " (" + "c" * 20 + ")"
+    assert len(longest) == 76
+    draft = only(evaluate(http("/", 200, {"server": [longest]}), rule="R-INFO-01"))
+    assert draft.conditions == ("Responses name the software and its version in the Server header.",)
+    assert draft.facts == ()
+
+
+def test_a_redirect_host_too_long_to_quote_is_still_a_draft() -> None:
+    host = ".".join(["a" * 60] * 3) + ".invalid"
+    draft = only(evaluate(http("/", 301, {}, redirect=f"https://{host}/"), rule="R-REDIR-01"))
+    assert draft.conditions == (
+        "The redirect target's host is not one the scope lists; it was recorded and not followed.",
+    )
+    assert draft.facts == ()
+
+
+def test_a_cname_and_a_server_host_too_long_to_quote_are_not_quoted() -> None:
+    host = ".".join(["a" * 60] * 3) + ".invalid"
+    assert only(evaluate(dns({"CNAME": [host]}), rule="R-DNS-01")).facts == ()
+    assert only(evaluate(openapi([f"https://{host}/"]), rule="R-API-01")).facts == ()
+
+
+def test_a_very_long_host_name_cannot_make_a_title_or_a_condition_unstorable() -> None:
+    host = ".".join(["a" * 60] * 4) + ".invalid"
+    payload = {
+        "host": host,
+        "port": 443,
+        "status": "ok",
+        "tls_version": "TLSv1.0",
+        "certificate": cert(san_dns=["x.invalid"], subject_cn="x.invalid"),
+    }
+    draft = only(evaluate(view("tls_metadata", payload, target=(host, "https", 443)), rule="R-TLS-01"))
+    assert len(draft.title) <= 160 and draft.title.endswith("...")
+    assert all(len(c) <= 300 for c in draft.conditions)
+    assert draft.conditions[-1].endswith("...") or len(draft.conditions[-1]) <= 300
+
+
+# ------------------------------------------------------------------------------------------------- odd shapes ----
+def test_a_legacy_protocol_with_no_certificate_is_still_a_low_confidence_draft() -> None:
+    payload = {"host": HOST, "port": 443, "status": "ok", "tls_version": "TLSv1.0", "certificate": None}
+    draft = only(evaluate(view("tls_metadata", payload), rule="R-TLS-01"))
+    assert draft.conditions == ("The service negotiated TLSv1.0, a protocol version that is deprecated.",)
+    assert draft.confidence == 0.8
+    modern = {**payload, "tls_version": "TLSv1.3"}
+    assert evaluate(view("tls_metadata", modern), rule="R-TLS-01") == []
+
+
+def test_a_handshake_that_failed_is_not_a_tls_draft_even_if_the_observation_itself_succeeded() -> None:
+    payload = {"host": HOST, "port": 443, "status": "handshake_failed", "tls_version": "TLSv1.0", "certificate": None}
+    assert evaluate(view("tls_metadata", payload), rule="R-TLS-01") == []
+
+
+def test_a_target_with_no_positive_probe_gets_no_draft_while_another_does() -> None:
+    positive = probe("prompt_injection", "canary-echo-v1", 0, canary=True)
+    other = {**positive.payload.model_dump(mode="json"), "ai_target_id": "quiet-bot", "canary_present": False}
+    drafts = evaluate(
+        positive,
+        view("ai_probe", other, target=("quiet.example.invalid", "https", 443)),
+        config=scope(AI_PACK),
+        rule="R-AI-01",
+    )
+    assert [d.title for d in drafts] == ["Prompt-injection susceptibility signal on support-bot"]
+
+
+def test_a_server_list_with_things_that_are_not_urls_is_read_past() -> None:
+    parsed = {
+        "openapi": "3.0",
+        "path_count": 2,
+        "server_urls": [5, None, ["x"], "https://other.example.invalid/"],
+        "security_schemes": [],
+    }
+    draft = only(evaluate(http("/openapi.json", 200, {}, parsed=parsed), rule="R-API-01"))
+    assert draft.facts == ("Server host: other.example.invalid",)
+
+
+def test_a_null_origin_on_its_own_is_reported_without_the_wildcard_sentence() -> None:
+    draft = only(evaluate(http("/", 200, {"access-control-allow-origin": ["null"]}), rule="R-CORS-01"))
+    assert draft.conditions == (
+        "The response sets Access-Control-Allow-Origin to null, which sandboxed pages and local files can match.",
+    )
+
+
+# ------------------------------------------------------------------------------------------- more edges ----
+def test_an_rsa_key_of_unknown_size_is_not_called_weak() -> None:
+    assert evaluate(tls(certificate=cert(public_key={"type": "rsa", "bits": None})), rule="R-TLS-01") == []
+
+
+@pytest.mark.parametrize("algorithm", ["SHA1WithRSA", "Sha1", "MD5withRSA", "RSA-MD5"])
+def test_a_weak_signature_algorithm_is_found_whatever_its_case(algorithm: str) -> None:
+    draft = only(evaluate(tls(certificate=cert(signature_algorithm=algorithm)), rule="R-TLS-01"))
+    assert draft.conditions == ("The certificate's signature algorithm uses SHA-1 or MD5, which are considered weak.",)
+
+
+def test_a_header_missing_from_the_first_response_but_present_in_the_second_is_not_missing() -> None:
+    first = http("/a", 200, {k: v for k, v in FULL_HEADERS.items() if k != "content-security-policy"})
+    second = http("/b", 200, {**FULL_HEADERS})
+    assert evaluate(first, second, rule="R-HDR-01") == []
+
+
+def test_a_header_missing_from_the_second_response_only_is_not_missing() -> None:
+    assert evaluate(http("/a", 200, {**FULL_HEADERS}), http("/b", 200, {}), rule="R-HDR-01") == []
+
+
+@pytest.mark.parametrize("value", ["Apache/beta", "Apache/-1", "Apache/.1", "Apache/_1"])
+def test_a_banner_whose_version_does_not_start_with_a_digit_is_not_a_banner(value: str) -> None:
+    assert evaluate(http("/", 200, {"server": [value]}), rule="R-INFO-01") == []
+
+
+def test_exactly_two_observations_with_banners_are_compared() -> None:
+    a = http("/a", 200, {"server": ["Apache/2.4.49"]})
+    b = http("/b", 200, {"server": ["Apache/2.4.49"]})
+    draft = only(evaluate(a, b, rule="R-INFO-01"))
+    assert [s.kind for s in draft.specs] == ["compare_recorded_observations", "owner_confirmation"]
+    assert draft.specs[0].cites == (a.id, b.id)
+
+
+def test_at_most_six_banner_facts_are_quoted() -> None:
+    views = [http(f"/p{i}", 200, {"server": [f"Apache/2.4.{i}"]}) for i in range(8)]
+    draft = only(evaluate(*views, rule="R-INFO-01"))
+    assert draft.facts == tuple(f"Server: Apache/2.4.{i}" for i in range(6))
+
+
+def test_a_fact_is_quoted_when_it_is_exactly_80_characters_and_not_when_it_is_81() -> None:
+    import re  # noqa: PLC0415
+
+    from scopedagent.pipeline.rules import _fact  # noqa: PLC0415
+
+    anything = re.compile(r"[a-z]+")
+    assert _fact("L", "a" * 77, anything) == "L: " + "a" * 77 and len("L: " + "a" * 77) == 80
+    assert _fact("L", "a" * 78, anything) is None
+    assert _fact("L", "A", anything) is None  # the shape is checked too
+
+
+def test_a_banner_whose_fact_would_be_longer_than_80_characters_gives_a_draft_without_the_quote() -> None:
+    longest = "S" + "s" * 30 + "/" + "1" + "d" * 20 + " (" + "e" * 20 + ")"
+    assert len(f"Server: {longest}") == 84
+    assert only(evaluate(http("/", 200, {"server": [longest]}), rule="R-INFO-01")).facts == ()
+
+
+def test_non_text_entries_in_a_robots_list_are_read_past() -> None:
+    draft = only(evaluate(robots(5, None, ["x"], "/admin"), rule="R-INFO-02"))  # type: ignore[arg-type]
+    assert draft.conditions == ("robots.txt asks crawlers to skip 1 path whose name suggests sensitive content.",)
+
+
+def test_a_path_listed_twice_in_robots_is_quoted_once_and_counted_twice() -> None:
+    draft = only(evaluate(robots("/admin", "/admin"), rule="R-INFO-02"))
+    assert draft.facts == ("Disallow: /admin",)
+    assert draft.conditions == ("robots.txt asks crawlers to skip 2 paths whose names suggest sensitive content.",)
+
+
+def test_the_same_server_host_listed_twice_counts_once() -> None:
+    draft = only(evaluate(openapi(["https://a.example.invalid/x", "https://a.example.invalid/y"]), rule="R-API-01"))
+    assert draft.conditions[2] == "It names 1 server host other than this target's own."
+    assert draft.facts == ("Server host: a.example.invalid",)
+
+
+def test_a_server_list_in_a_document_that_is_not_an_api_description_gives_no_draft() -> None:
+    parsed = {"path_count": 2, "server_urls": ["https://other.example.invalid/"], "security_schemes": []}
+    assert evaluate(http("/openapi.json", 200, {}, parsed=parsed), rule="R-API-01") == []
+
+
+@pytest.mark.parametrize("count", [True, False, "3", None, 2.5, [1]])
+def test_a_path_count_that_is_not_a_whole_number_is_read_as_zero(count: Any) -> None:
+    parsed = {
+        "openapi": "3.0",
+        "path_count": count,
+        "server_urls": ["https://other.example.invalid/"],
+        "security_schemes": [],
+    }
+    draft = only(evaluate(http("/openapi.json", 200, {}, parsed=parsed), rule="R-API-01"))
+    assert draft.conditions[1] == "It describes 0 paths."
+
+
+@pytest.mark.parametrize("value", [" * ", "*\t", "NULL", " Null ", " null"])
+def test_an_origin_header_is_read_trimmed_and_without_regard_to_case(value: str) -> None:
+    assert len(evaluate(http("/", 200, {"access-control-allow-origin": [value]}), rule="R-CORS-01")) == 1
+
+
+@pytest.mark.parametrize("value", [" true ", "TRUE", "True\t"])
+def test_a_credentials_header_is_read_trimmed_and_without_regard_to_case(value: str) -> None:
+    headers = {"access-control-allow-origin": ["*"], "access-control-allow-credentials": [value]}
+    assert (
+        only(evaluate(http("/", 200, headers), rule="R-CORS-01")).conditions[-1]
+        == "It also sets Access-Control-Allow-Credentials to true."
+    )
+
+
+def test_the_rerun_step_names_the_probe_that_fired_not_the_first_one() -> None:
+    quiet = probe("prompt_injection", "canary-echo-v1", 0, canary=False)
+    loud = probe("prompt_injection", "canary-echo-v1", 1, canary=True)
+    draft = only(evaluate(quiet, loud, config=scope(AI_PACK), rule="R-AI-01"))
+    assert draft.specs[1].probe_index == 1 and draft.specs[1].cites == (loud.id,)
+    flagged = probe(
+        "output_handling",
+        "output-structure-v1",
+        1,
+        flags={
+            "contains_html": True,
+            "contains_markdown_link": False,
+            "contains_code_block": False,
+            "contains_url": False,
+        },
+    )
+    out = only(
+        evaluate(probe("output_handling", "output-structure-v1", 0), flagged, config=scope(AI_PACK), rule="R-AI-04")
+    )
+    assert out.specs[1].probe_index == 1
+
+
+def test_the_fit_helper_keeps_text_of_exactly_the_limit_and_cuts_one_more() -> None:
+    from scopedagent.pipeline.rules import _fit  # noqa: PLC0415
+
+    assert _fit("a" * 160, 160) == "a" * 160
+    cut = _fit("a" * 161, 160)
+    assert len(cut) == 160 and cut.endswith("...") and cut == "a" * 157 + "..."
+
+
+def test_a_condition_over_300_characters_is_cut_with_a_marker() -> None:
+    long_path = "/" + "a" * 250
+    draft = only(
+        evaluate(
+            http(
+                long_path,
+                200,
+                {},
+                parsed={
+                    "openapi": "3.0",
+                    "path_count": 1,
+                    "server_urls": ["https://other.example.invalid/"],
+                    "security_schemes": [],
+                },
+            ),
+            rule="R-API-01",
+        )
+    )
+    assert all(len(c) <= 300 for c in draft.conditions)
+    assert draft.conditions[0].endswith("...") and len(draft.conditions[0]) == 300
+
+
+def test_every_draft_states_the_assumption_about_what_was_stored() -> None:
+    draft = only(evaluate(tls("TLSv1.0"), rule="R-TLS-01"))
+    assert draft.assumptions == (
+        "The stored observations are an accurate record of what the target answered at the time.",
+    )
+
+
+def test_cwe_suggestions_are_sorted_and_unique() -> None:
+    from scopedagent.pipeline.rules import _cwe  # noqa: PLC0415
+
+    assert _cwe(327, 295, 295, 326) == ("CWE-295", "CWE-326", "CWE-327")
+    assert _cwe() == ()

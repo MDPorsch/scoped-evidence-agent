@@ -488,3 +488,273 @@ def test_dropping_is_reported_for_every_step_nothing_disappears() -> None:
     specs = [spec("send_payload"), spec("send_payload"), spec("inspect_certificate_field", host="x.invalid", port=1)]
     steps, dropped = render_steps(specs, scope(), set(OBS))
     assert steps == [] and len(dropped) == 3
+
+
+# ------------------------------------------------------------------------------------ the second layer (VS-03) ----
+@pytest.mark.parametrize("condition", ["", "   ", "x" * 201, "line\nbreak", "bidi" + chr(0x202E)])
+def test_vs03_a_condition_that_is_not_one_plain_line_is_dropped(condition: str) -> None:
+    steps, dropped = render_one(spec("read_recorded_observation", condition=condition))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+@pytest.fixture
+def scope_unchecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Switch the scope check off: the value checks must still refuse an unsafe value on their own (defence in depth)."""
+    import scopedagent.pipeline.steps as module  # noqa: PLC0415
+
+    monkeypatch.setattr(module, "_in_scope", lambda kind, spec, scope: None)
+
+
+@pytest.mark.parametrize(
+    "host", ["bad host", "bad.example.invalid; rm -rf /", "BAD.EXAMPLE.INVALID", "", "x" * 300, "$(id).invalid"]
+)
+def test_vs03_an_unsafe_host_is_refused_even_when_the_scope_check_is_off(scope_unchecked: None, host: str) -> None:
+    for kind in ("inspect_certificate_field", "re_resolve_name"):
+        steps, dropped = render_one(spec(kind, host=host, port=443, record_type="A"))
+        assert steps == [] and [d.rule for d in dropped] == ["VS-03"], (kind, host)
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536, 99999, True, None, "443"])
+def test_vs03_a_port_outside_1_to_65535_is_refused_even_when_the_scope_check_is_off(
+    scope_unchecked: None, port: Any
+) -> None:
+    steps, dropped = render_one(spec("inspect_certificate_field", host="bad.example.invalid", port=port))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+def test_vs03_the_edges_of_the_port_range_are_accepted(scope_unchecked: None) -> None:
+    for port in (1, 65535):
+        steps, dropped = render_one(spec("inspect_certificate_field", host="bad.example.invalid", port=port))
+        assert dropped == [] and len(steps) == 1
+
+
+@pytest.mark.parametrize("scheme", ["ftp", "HTTPS", "", None, "https://"])
+def test_vs03_a_scheme_other_than_http_or_https_is_refused_even_when_the_scope_check_is_off(
+    scope_unchecked: None, scheme: Any
+) -> None:
+    steps, dropped = render_one(
+        spec("rerequest_listed_path", host="bad.example.invalid", port=443, scheme=scheme, path="/")
+    )
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+@pytest.mark.parametrize("path", ["/a/../b", "no-slash", "/a//b", "/a b", "/a;b", "", "/" + "a" * 2100])
+def test_vs03_a_path_that_is_not_an_exact_canonical_path_is_refused_even_when_the_scope_check_is_off(
+    scope_unchecked: None, path: str
+) -> None:
+    for kind in ("rerequest_listed_path", "read_public_document"):
+        steps, dropped = render_one(spec(kind, host="bad.example.invalid", port=443, scheme="https", path=path))
+        assert steps == [] and [d.rule for d in dropped] == ["VS-03"], (kind, path)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://app.example.invalid",
+        "https://app example.invalid",
+        "https://",
+        "app.example.invalid",
+        "https://a.invalid/path",
+        "https://a.invalid'; id; '",
+        "",
+    ],
+)
+def test_vs03_an_origin_that_is_not_a_plain_https_origin_is_refused_even_when_the_scope_check_is_off(
+    scope_unchecked: None, origin: str
+) -> None:
+    steps, dropped = render_one(
+        spec(
+            "check_cors_for_declared_origin",
+            host="bad.example.invalid",
+            port=443,
+            scheme="https",
+            path="/",
+            origin=origin,
+        )
+    )
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+def test_the_cors_step_renders_from_its_template_for_a_plain_origin_when_the_scope_check_is_off(
+    scope_unchecked: None,
+) -> None:
+    steps, dropped = render_one(
+        spec(
+            "check_cors_for_declared_origin",
+            host="bad.example.invalid",
+            port=443,
+            scheme="https",
+            path="/openapi.json",
+            origin="https://app.example.invalid:8443",
+        )
+    )
+    assert dropped == []
+    (rendered,) = steps
+    assert "OPTIONS" in rendered.action and "https://app.example.invalid:8443" in rendered.action
+    assert (
+        rendered.example_invocation is not None
+        and "--header 'Origin: https://app.example.invalid:8443'" in rendered.example_invocation
+    )
+    assert "--request OPTIONS" in rendered.example_invocation and not FORBIDDEN.search(rendered.example_invocation)
+
+
+@pytest.mark.parametrize("method", ["HEAD", "OPTIONS", "POST"])
+def test_vs03_only_get_is_allowed_for_a_document_or_an_origin_check(scope_unchecked: None, method: str) -> None:
+    for kind in ("read_public_document", "check_cors_for_declared_origin"):
+        steps, dropped = render_one(
+            spec(
+                kind,
+                host="bad.example.invalid",
+                port=443,
+                scheme="https",
+                path="/",
+                method=method,
+                origin="https://a.invalid",
+            )
+        )
+        assert steps == [] and [d.rule for d in dropped] == ["VS-03"], (kind, method)
+
+
+@pytest.mark.parametrize("target_id", ["Bad_ID", "x", "-bad", "a" * 41, "", "ok id", None])
+def test_vs03_a_probe_target_id_that_is_not_a_plain_id_is_refused_even_when_the_scope_check_is_off(
+    scope_unchecked: None, target_id: Any
+) -> None:
+    probe = spec("rerun_library_probe", target_id=target_id, probe_set="canary-echo-v1", probe_index=0)
+    steps, dropped = render_steps([probe], scope(AI_PACK), set(OBS))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+def test_an_unknown_probe_target_is_dropped_by_the_renderer_even_when_the_scope_check_is_off(
+    scope_unchecked: None,
+) -> None:
+    probe = spec("rerun_library_probe", target_id="no-such-bot", probe_set="canary-echo-v1", probe_index=0)
+    steps, dropped = render_steps([probe], scope(AI_PACK), set(OBS))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-02"]
+
+
+def test_a_cited_id_the_step_model_would_refuse_is_dropped_not_crashed() -> None:
+    steps, dropped = render_steps([spec("read_recorded_observation", cites=("has space",))], scope(), {"has space"})
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+# ----------------------------------------------------------------------------------------------- more edges ----
+def test_the_rendered_steps_are_exactly_the_reviewed_templates() -> None:
+    import json  # noqa: PLC0415
+
+    from tests.support import FIXTURES  # noqa: PLC0415
+
+    expected = json.loads((FIXTURES / "expected_steps.json").read_text("utf-8"))
+    actual: dict[str, Any] = {}
+    for kind, the_spec in GOOD.items():
+        (rendered,), _ = render_one(the_spec)
+        actual[kind] = json.loads(rendered.model_dump_json())
+    probe = spec("rerun_library_probe", target_id="support-bot", probe_set="canary-echo-v1", probe_index=0)
+    (rendered,), _ = render_steps([probe], scope(AI_PACK), set(OBS))
+    actual["rerun_library_probe"] = json.loads(rendered.model_dump_json())
+    quoted = spec(
+        "read_recorded_observation", quoted=("Apache/2.4.49 (Unix)", "PHP/5.6.40"), fields=("server", "x-powered-by")
+    )
+    (rendered,), _ = render_one(quoted)
+    actual["read_with_quoted_data"] = json.loads(rendered.model_dump_json())
+    assert actual == expected
+
+
+def test_an_action_exactly_at_the_limit_is_kept_and_one_over_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scopedagent.pipeline.steps as module  # noqa: PLC0415
+
+    (rendered,), _ = render_one(GOOD["inspect_certificate_field"])
+    exact = len(rendered.action)
+    monkeypatch.setattr(module, "MAX_ACTION", exact)
+    steps, dropped = render_one(GOOD["inspect_certificate_field"])
+    assert dropped == [] and len(steps) == 1
+    monkeypatch.setattr(module, "MAX_ACTION", exact - 1)
+    steps, dropped = render_one(GOOD["inspect_certificate_field"])
+    assert steps == [] and [d.rule for d in dropped] == ["VS-06"]
+
+
+def test_an_owner_question_may_be_200_characters_and_not_201() -> None:
+    ok, dropped_ok = render_one(spec("owner_confirmation", question="q" * 200))
+    assert dropped_ok == [] and len(ok) == 1
+    steps, dropped = render_one(spec("owner_confirmation", question="q" * 201))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+@pytest.mark.parametrize("bad", [";", "|", "&", "$", "`", "<", ">", "(", ")", "\n", "\r"])
+def test_an_owner_question_with_a_shell_character_is_dropped(bad: str) -> None:
+    steps, dropped = render_one(spec("owner_confirmation", question=f"Is it in use{bad} really?"))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-03"]
+
+
+def test_the_certificate_template_uses_the_port_it_was_given(scope_unchecked: None) -> None:
+    (rendered,), _ = render_one(spec("inspect_certificate_field", host="bad.example.invalid", port=8443))
+    assert (
+        rendered.example_invocation
+        == "openssl s_client -connect bad.example.invalid:8443 -servername bad.example.invalid -verify_return_error"
+    )
+    assert "port 8443" in rendered.action and rendered.target is not None and rendered.target.port == 8443
+
+
+def test_a_certificate_step_for_a_target_that_lists_no_https_is_dropped() -> None:
+    data = scope_dict("misconfigured")
+    data["allowed_targets"].append(
+        {"host": "plain.example.invalid", "schemes": ["http"], "ports": [80], "allowed_paths": ["/"]}
+    )
+    config = parse_scope(dump(data), now=NOW).config
+    steps, dropped = render_steps(
+        [spec("inspect_certificate_field", host="plain.example.invalid", port=80)], config, set(OBS)
+    )
+    assert steps == [] and [d.rule for d in dropped] == ["VS-02"]
+
+
+def test_a_probe_index_that_is_a_boolean_is_refused() -> None:
+    probe = spec("rerun_library_probe", target_id="support-bot", probe_set="canary-echo-v1", probe_index=True)
+    steps, dropped = render_steps([probe], scope(AI_PACK), set(OBS))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-02"]
+
+
+def test_quoted_values_that_clean_to_nothing_are_not_shown() -> None:
+    (rendered,), _ = render_one(spec("read_recorded_observation", quoted=("", "   ", "x")))
+    assert rendered.record.endswith('Quoted from the target, as data: "x".')
+    (plain,), _ = render_one(spec("read_recorded_observation", quoted=("", "  ")))
+    assert "Quoted" not in plain.record
+
+
+def test_when_a_scope_does_declare_an_origin_the_cors_step_is_checked_like_any_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scopedagent.pipeline.steps as module  # noqa: PLC0415
+
+    monkeypatch.setattr(module, "_CORS_ORIGINS", frozenset({"https://app.example.invalid"}))
+    good = spec(
+        "check_cors_for_declared_origin",
+        host="bad.example.invalid",
+        port=443,
+        scheme="https",
+        path="/openapi.json",
+        origin="https://app.example.invalid",
+    )
+    steps, dropped = render_one(good)
+    assert dropped == [] and len(steps) == 1
+    other = spec(
+        "check_cors_for_declared_origin",
+        host="bad.example.invalid",
+        port=443,
+        scheme="https",
+        path="/openapi.json",
+        origin="https://other.example.invalid",
+    )
+    assert render_one(other)[1][0].rule == "VS-02"
+    unlisted = spec(
+        "check_cors_for_declared_origin",
+        host="bad.example.invalid",
+        port=443,
+        scheme="https",
+        path="/admin",
+        origin="https://app.example.invalid",
+    )
+    assert render_one(unlisted)[1][0].rule == "VS-02"
+    data = scope_dict("misconfigured")
+    data["allowed_operations"] = ["dns_metadata", "tls_metadata"]
+    config = parse_scope(dump(data), now=NOW).config
+    steps, dropped = render_steps([good], config, set(OBS))
+    assert steps == [] and [d.rule for d in dropped] == ["VS-02"]

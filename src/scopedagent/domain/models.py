@@ -130,6 +130,7 @@ class Run(Base):
         CheckConstraint("budget_spent >= 0", name="ck_runs_budget_spent"),
         CheckConstraint("budget_spent <= total_budget", name="ck_runs_budget_within_total"),
         CheckConstraint("attempt >= 1", name="ck_runs_attempt"),
+        CheckConstraint("planned_operations IS NULL OR planned_operations >= 0", name="ck_runs_planned_operations"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -145,6 +146,7 @@ class Run(Base):
     retry_of_run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
     attempt: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    planned_operations: Mapped[int | None] = mapped_column(Integer, nullable=True)  # NULL for a run made before 0002
 
 
 class Observation(Base):
@@ -240,6 +242,50 @@ class FindingEvidence(Base):
     run_id: Mapped[str] = mapped_column(String)
 
 
+class FindingDetail(Base):
+    """The immutable assessment of one draft: a trigger refuses any update or delete (D-E62)."""
+
+    __tablename__ = "finding_details"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_id", "run_id"], ["finding_drafts.id", "finding_drafts.run_id"], name="fk_details_finding_run"
+        ),
+        CheckConstraint("rule_version >= 1", name="ck_finding_details_rule_version"),
+    )
+
+    finding_id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String)
+    rule_id: Mapped[str] = mapped_column(String)
+    rule_version: Mapped[int] = mapped_column(Integer)
+    details_json: Mapped[str] = mapped_column(Text)
+
+
+class FindingReview(Base):
+    """One reviewer decision. Append-only: a trigger refuses any update or delete (D-E62)."""
+
+    __tablename__ = "finding_reviews"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_id", "run_id"], ["finding_drafts.id", "finding_drafts.run_id"], name="fk_reviews_finding_run"
+        ),
+        CheckConstraint(
+            _in("decision", ("confirmed", "not_exploitable", "inconclusive")), name="ck_finding_reviews_decision"
+        ),
+        CheckConstraint(_in("status_after", FINDING_STATUSES), name="ck_finding_reviews_status_after"),
+        CheckConstraint("length(reviewer_id) BETWEEN 1 AND 64", name="ck_finding_reviews_reviewer"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 1000", name="ck_finding_reviews_reason"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[str] = mapped_column(String)
+    run_id: Mapped[str] = mapped_column(String)
+    decision: Mapped[str] = mapped_column(String)
+    reviewer_id: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(Text)
+    status_after: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     __table_args__ = (
@@ -266,8 +312,10 @@ __all__ = [
     "AuditEvent",
     "Base",
     "Engagement",
+    "FindingDetail",
     "FindingDraft",
     "FindingEvidence",
+    "FindingReview",
     "Observation",
     "Run",
     "Target",

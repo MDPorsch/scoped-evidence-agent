@@ -71,7 +71,7 @@ def refused(db: Any, finding_id: str, code: ErrorCode, **kw: Any) -> None:
 # ------------------------------------------------------------------------------------------- the three decisions ----
 def test_confirmed_validates_and_names_the_reviewer(drafted: Any) -> None:
     db, _, ids = drafted
-    assert review(db, ids[0], ReviewDecision.CONFIRMED) == ("VALIDATED", "alice", 2)
+    assert review(db, ids[0], ReviewDecision.CONFIRMED) == ("VALIDATED", "alice", 3)
     assert reviews(db, ids[0]) == [("confirmed", "alice", "ran the steps; it holds", "VALIDATED")]
 
 
@@ -80,7 +80,7 @@ def test_not_exploitable_closes_the_finding_as_a_false_positive_and_keeps_the_ex
     assert review(db, ids[0], ReviewDecision.NOT_EXPLOITABLE, reason="the host is decommissioned") == (
         "FALSE_POSITIVE",
         "alice",
-        2,
+        3,
     )
     assert reviews(db, ids[0]) == [("not_exploitable", "alice", "the host is decommissioned", "FALSE_POSITIVE")]
 
@@ -90,10 +90,10 @@ def test_inconclusive_records_the_review_and_leaves_the_finding_open(drafted: An
     assert review(db, ids[0], ReviewDecision.INCONCLUSIVE, reason="the owner did not answer") == (
         "NEEDS_VALIDATION",
         None,
-        1,
+        2,
     )
     assert reviews(db, ids[0]) == [("inconclusive", "alice", "the owner did not answer", "NEEDS_VALIDATION")]
-    assert state(db, ids[0]) == ("NEEDS_VALIDATION", None, 1)
+    assert state(db, ids[0]) == ("NEEDS_VALIDATION", None, 2)  # revision 1 was the DRAFT, 2 the move to review
 
 
 def test_an_open_finding_can_be_reviewed_again_and_every_review_is_kept_in_order(drafted: Any) -> None:
@@ -127,7 +127,7 @@ def test_reviewing_one_finding_touches_no_other(drafted: Any) -> None:
 def test_only_a_human_may_review(drafted: Any, actor: Actor, decision: ReviewDecision) -> None:
     db, _, ids = drafted
     refused(db, ids[0], ErrorCode.STATE_003, actor=actor, decision=decision)
-    assert reviews(db, ids[0]) == [] and state(db, ids[0]) == ("NEEDS_VALIDATION", None, 1)
+    assert reviews(db, ids[0]) == [] and state(db, ids[0]) == ("NEEDS_VALIDATION", None, 2)
     with db.begin() as session:
         denied = session.execute(
             text(
@@ -221,3 +221,11 @@ def test_a_secret_pasted_into_a_reason_is_redacted_everywhere_it_could_be_stored
     review(db, finding_id, ReviewDecision.CONFIRMED, reason=f"worked with token={token}")
     assert token not in everything_stored(db, data_dir)
     assert "[REDACTED]" in reviews(db, finding_id)[0][2]
+
+
+def test_a_reason_is_stored_as_one_plain_line(drafted: Any) -> None:
+    db, _, ids = drafted
+    review(db, ids[0], ReviewDecision.CONFIRMED, reason="line one\nline two\ttabbed" + chr(0x202E) + "end")
+    stored = reviews(db, ids[0])[0][2]
+    assert "\n" not in stored and "\t" not in stored and chr(0x202E) not in stored
+    assert stored.startswith("line one line two tabbed")

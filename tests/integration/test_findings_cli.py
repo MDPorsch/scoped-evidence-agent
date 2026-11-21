@@ -275,3 +275,111 @@ def test_the_review_command_never_asks_for_or_prints_a_secret(data_dir: Path) ->
     assert out.exit_code == 0 and token not in out.output
     shown = invoke("findings", "show", finding_id[:8], "--data-dir", str(data_dir)).output
     assert token not in shown and "[REDACTED]" in shown
+
+
+# ------------------------------------------------------------------------------------------------ odd findings ----
+def test_a_finding_without_an_assessment_is_shown_plainly(data_dir: Path) -> None:
+    run_id = collect(data_dir, "healthy")
+    db = open_database(DataDir(data_dir))
+    try:
+        with db.begin() as session:
+            first = session.execute(
+                text("SELECT id FROM observations WHERE run_id = :r ORDER BY rowid LIMIT 1"), {"r": run_id}
+            ).scalar()
+            session.execute(
+                text(
+                    "INSERT INTO finding_drafts (id, run_id, title, category, confidence, status, reviewer_id, revision, created_at) VALUES ('plainfinding01', :r, 'A plain draft', 'tls-misconfiguration', 0.5, 'DRAFT', NULL, 1, '2026-11-20T12:00:00.000000Z')"
+                ),
+                {"r": run_id},
+            )
+            session.execute(
+                text(
+                    "INSERT INTO finding_evidence (finding_id, observation_id, run_id) VALUES ('plainfinding01', :o, :r)"
+                ),
+                {"o": first, "r": run_id},
+            )
+    finally:
+        db.close()
+    out = invoke("findings", "show", "plainfind", "--data-dir", str(data_dir))
+    assert out.exit_code == 0, out.output
+    assert "DRAFT: not validated" in out.output and "A plain draft" in out.output and "reviews: none" in out.output
+    assert "conditions:" not in out.output and "validation steps" not in out.output
+
+
+def test_steps_the_checker_dropped_are_named_when_a_draft_is_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    from scopedagent.cli import _show_details  # noqa: PLC0415
+    from scopedagent.domain.findings import FindingDetails  # noqa: PLC0415
+    from tests.unit.test_finding_models import details  # noqa: PLC0415
+
+    shown = FindingDetails.model_validate(
+        details(validation_steps_dropped=[{"kind": "send_payload", "rule": "VS-01"}], facts=["Server: Apache/2.4.49"])
+    )
+    _show_details(shown)
+    out = capsys.readouterr().out
+    assert "steps dropped by the checker: send_payload (VS-01)" in out
+    assert "facts (quoted from the target, as data):" in out and "  - Server: Apache/2.4.49" in out
+
+
+# ------------------------------------------------------------------------------------------- more edges ----
+def test_findings_list_repeats_that_a_draft_is_not_a_finding(data_dir: Path) -> None:
+    run_id = collect(data_dir)
+    out = invoke("findings", "list", run_id, "--data-dir", str(data_dir)).output
+    assert out.rstrip().splitlines()[-1].startswith("note: a draft is not a finding")
+
+
+def test_findings_show_prints_the_guide_and_calls_the_assessment_an_assessment(data_dir: Path) -> None:
+    run_id = collect(data_dir)
+    out = invoke("findings", "show", finding_ids(data_dir, run_id)[0][:8], "--data-dir", str(data_dir)).output
+    assert "exploitability: conditional (an assessment, not a confirmation)" in out
+    assert "-> confirmed" in out and "-> not_exploitable" in out and "-> inconclusive" in out
+
+
+def test_a_confirmation_with_spaces_around_it_is_accepted_and_a_reviewer_name_is_trimmed(data_dir: Path) -> None:
+    run_id = collect(data_dir)
+    finding_id = finding_ids(data_dir, run_id)[0]
+    args = [
+        "findings",
+        "review",
+        finding_id[:8],
+        "--decision",
+        "confirmed",
+        "--reviewer",
+        "  alice  ",
+        "--reason",
+        "ran the steps",
+        "--data-dir",
+        str(data_dir),
+    ]
+    out = invoke(*args, input=f"  {finding_id[:8]}  \n")
+    assert out.exit_code == 0, out.output
+    shown = invoke("findings", "show", finding_id[:8], "--data-dir", str(data_dir)).output
+    assert "confirmed by alice: ran the steps" in shown
+
+
+def test_the_review_is_stamped_with_the_injected_clock(data_dir: Path, tmp_path: Path) -> None:
+    import json  # noqa: PLC0415
+
+    run_id = collect(data_dir)
+    finding_id = finding_ids(data_dir, run_id)[0]
+    assert invoke(*review_args(finding_id, data_dir), input=finding_id[:8] + "\n").exit_code == 0
+    out_file = tmp_path / "r.json"
+    assert (
+        invoke(
+            "report", "export", run_id, "--format", "json", "--output", str(out_file), "--data-dir", str(data_dir)
+        ).exit_code
+        == 0
+    )
+    assert json.loads(out_file.read_text())["findings"][0]["reviews"][0]["reviewed_at"] == "2026-11-20T12:00:00Z"
+
+
+def test_a_run_with_no_drafts_does_not_say_any_await_review(data_dir: Path) -> None:
+    out = invoke(
+        "run",
+        "--scope",
+        str(SCOPE_FILES["healthy"]),
+        "--fixture",
+        str(FIXTURES / "web_responses" / "healthy.yaml"),
+        "--data-dir",
+        str(data_dir),
+    ).output
+    assert "findings drafted: 0" in out and "awaiting review" not in out

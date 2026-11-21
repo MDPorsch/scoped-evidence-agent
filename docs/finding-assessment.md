@@ -1,6 +1,6 @@
 # What a draft finding says: class, exploitability assessment, validation steps
 
-Status: **approved by the owner on 2026-11-21 (D-E56 to D-E60).** Built in M3, with the correlator, after the collectors exist.
+Status: **approved by the owner on 2026-11-21 (D-E56 to D-E60).** **Built in M3** with the correlator; the concrete rules, the step checker and the report are in `docs/correlator.md`.
 The validation steps (below) were made more detailed at the owner's request, within the limits of D-E58 and D-E59.
 
 You asked for the tool to decide what kind of flaw something is, name the vulnerability, say whether it is exploitable and say how

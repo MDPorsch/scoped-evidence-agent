@@ -16,7 +16,17 @@ from itertools import product
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
-from scopedagent.domain.models import Engagement, FindingDraft, FindingEvidence, Observation, Run, Target
+from scopedagent.domain.findings import FindingDetails, ReviewDecision
+from scopedagent.domain.models import (
+    Engagement,
+    FindingDetail,
+    FindingDraft,
+    FindingEvidence,
+    FindingReview,
+    Observation,
+    Run,
+    Target,
+)
 from scopedagent.domain.schemas import FindingDraftCreate, ObservationEnvelope
 from scopedagent.domain.state_machine import (
     TERMINAL_RUN_STATES,
@@ -29,11 +39,16 @@ from scopedagent.domain.state_machine import (
 )
 from scopedagent.errors import ErrorCode, PolicyError, StateError
 from scopedagent.ids import new_id
+from scopedagent.logs import safe_text
+from scopedagent.pipeline.redact import redact_text
 from scopedagent.policy.scope import LoadedScope, check_not_expired
 from scopedagent.storage.audit import append_event
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 MAX_PAGE = 100
+_REVIEWER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@ -]{0,63}")
+MAX_REASON = 1000
+MIN_REF = 8  # a finding reference is a full id or a unique prefix of at least this many characters
 
 
 def _deny(
@@ -104,7 +119,9 @@ def register_engagement(session: Session, loaded: LoadedScope, *, now: datetime)
 
 
 # ------------------------------------------------------------------------------------------ runs ----
-def create_run(session: Session, engagement: Engagement, *, actor: Actor, now: datetime) -> Run:
+def create_run(
+    session: Session, engagement: Engagement, *, actor: Actor, now: datetime, planned_operations: int | None = None
+) -> Run:
     if actor.type is not ActorType.HUMAN:
         _deny(
             session,
@@ -129,6 +146,7 @@ def create_run(session: Session, engagement: Engagement, *, actor: Actor, now: d
         budget_spent=0,
         attempt=1,
         created_at=now,
+        planned_operations=planned_operations,
     )
     session.add(run)
     session.flush()
@@ -211,6 +229,7 @@ def retry_run(session: Session, run_id: str, *, actor: Actor, now: datetime) -> 
         attempt=attempt,
         retry_of_run_id=old.id,
         created_at=now,
+        planned_operations=old.planned_operations,
     )
     session.add(fresh)
     session.flush()
@@ -365,6 +384,7 @@ def create_finding_draft(
     observation_ids: Sequence[str],
     actor: Actor,
     now: datetime,
+    details: FindingDetails | None = None,
 ) -> FindingDraft:
     run = session.get(Run, run_id)
     if run is None:
@@ -389,6 +409,12 @@ def create_finding_draft(
         raise PolicyError(
             ErrorCode.POLICY_002, "a draft must cite at least one observation, each once, each from this run"
         )
+    if details is not None:
+        if draft.category != details.vulnerability_class.value:
+            raise PolicyError(ErrorCode.POLICY_003, "the draft's category must be its vulnerability class")
+        cited = {cite for step in details.validation_steps for cite in step.cites}
+        if not cited <= set(ids):
+            raise PolicyError(ErrorCode.POLICY_002, "a validation step may cite only the observations the draft cites")
     finding = FindingDraft(
         id=new_id(),
         run_id=run_id,
@@ -405,6 +431,17 @@ def create_finding_draft(
     for observation_id in ids:
         session.add(FindingEvidence(finding_id=finding.id, observation_id=observation_id, run_id=run_id))
     session.flush()
+    if details is not None:
+        session.add(
+            FindingDetail(
+                finding_id=finding.id,
+                run_id=run_id,
+                rule_id=details.rule_id,
+                rule_version=details.rule_version,
+                details_json=details.model_dump_json(),
+            )
+        )
+        session.flush()
     append_event(
         session,
         run_id=run_id,
@@ -472,6 +509,118 @@ def transition_finding(
         action="finding.transition",
         decision="allowed",
         reason=summary,
+        now=now,
+    )
+    return finding
+
+
+# --------------------------------------------------------------------------------------- reading and review ----
+def list_findings(session: Session, run_id: str) -> list[FindingDraft]:
+    """The findings of a run in the order they were drafted (`rowid` is the insertion order)."""
+    return list(
+        session.scalars(
+            select(FindingDraft).where(FindingDraft.run_id == run_id).order_by(text("finding_drafts.rowid"))
+        )
+    )
+
+
+def get_finding_details(session: Session, finding_id: str) -> FindingDetails:
+    row = session.get(FindingDetail, finding_id)
+    if row is None:
+        raise StateError(ErrorCode.STATE_001, "the finding has no stored details")
+    return FindingDetails.model_validate_json(row.details_json)  # the database is a trust boundary: validated on read
+
+
+def list_reviews(session: Session, finding_id: str) -> list[FindingReview]:
+    return list(
+        session.scalars(select(FindingReview).where(FindingReview.finding_id == finding_id).order_by(FindingReview.id))
+    )
+
+
+def resolve_finding(session: Session, ref: str) -> FindingDraft:
+    """A finding by its full id or by a unique prefix of at least eight characters."""
+    if len(ref) < MIN_REF:
+        raise PolicyError(ErrorCode.POLICY_003, f"a finding reference is at least {MIN_REF} characters")
+    escaped = ref.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    matches = list(
+        session.scalars(select(FindingDraft).where(FindingDraft.id.like(f"{escaped}%", escape="\\")).limit(2))
+    )
+    if not matches:
+        raise PolicyError(ErrorCode.POLICY_002, "no such finding")
+    if len(matches) > 1:
+        raise PolicyError(ErrorCode.POLICY_003, "that reference matches more than one finding: type more of it")
+    return matches[0]
+
+
+_DECIDES = {
+    ReviewDecision.CONFIRMED: FindingStatus.VALIDATED,
+    ReviewDecision.NOT_EXPLOITABLE: FindingStatus.FALSE_POSITIVE,
+}
+
+
+def review_finding(
+    session: Session,
+    finding_id: str,
+    decision: ReviewDecision,
+    *,
+    reviewer: Actor,
+    reason: str,
+    now: datetime,
+) -> FindingDraft:
+    """Record a person's decision on a finding that waits for review (D-E57, D-E63).
+
+    `confirmed` validates it, `not_exploitable` closes it as a false positive, `inconclusive` records the review and
+    leaves it open. The reason is redacted before it is stored anywhere. Refusals are audited and kept.
+    """
+    finding = session.get(FindingDraft, finding_id)
+    if finding is None:
+        raise StateError(ErrorCode.STATE_001, "the finding does not exist")
+    run_id = finding.run_id
+
+    def deny(error: StateError, why: str) -> None:
+        _deny(session, run_id=run_id, actor=reviewer, action="finding.review", now=now, reason=why, error=error)
+
+    if reviewer.type is not ActorType.HUMAN:
+        deny(StateError(ErrorCode.STATE_003, "only a human may review a finding"), "only a human may review")
+    if _REVIEWER.fullmatch(reviewer.id) is None:
+        deny(StateError(ErrorCode.STATE_004, "a review needs a named reviewer"), "the reviewer is not named")
+    cleaned = redact_text(safe_text(reason, 2 * MAX_REASON).strip()).text
+    if not cleaned or len(cleaned) > MAX_REASON:
+        deny(
+            StateError(ErrorCode.STATE_004, f"a review needs a reason of 1 to {MAX_REASON} characters"),
+            "the reason is missing or too long",
+        )
+    if finding.status != FindingStatus.NEEDS_VALIDATION.value:
+        deny(
+            StateError(ErrorCode.STATE_001, f"a finding that is {finding.status} cannot be reviewed"),
+            f"the finding is {finding.status}, not waiting for review",
+        )
+    destination = _DECIDES.get(decision)
+    if destination is not None:
+        transition_finding(session, finding_id, destination, actor=reviewer, now=now, reason=cleaned)
+    run = session.get(Run, run_id)
+    if run is not None and run.state == RunState.DRAFTED.value:
+        transition_run(session, run_id, RunState.HUMAN_REVIEW, actor=reviewer, now=now, reason="first review")
+    session.refresh(finding)
+    session.add(
+        FindingReview(
+            finding_id=finding_id,
+            run_id=run_id,
+            decision=decision.value,
+            reviewer_id=reviewer.id,
+            reason=cleaned,
+            status_after=finding.status,
+            created_at=now,
+        )
+    )
+    session.flush()
+    append_event(
+        session,
+        run_id=run_id,
+        actor=reviewer,
+        action="finding.review",
+        decision="allowed",
+        reason=f"{finding_id[:8]} {decision.value}: {cleaned}",
         now=now,
     )
     return finding

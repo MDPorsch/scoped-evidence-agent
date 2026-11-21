@@ -4,6 +4,26 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
+### Added (M3: drafts, review and reports)
+- `run` now applies a reviewed catalogue of twelve deterministic rules to what it collected and stores drafts (`docs/correlator.md`):
+  TLS weaknesses, missing security headers, version banners, sensitive-looking `robots.txt` paths, insecure or external redirects, exposed
+  API descriptions, permissive CORS, DNS aliases outside the scope, and four AI-reply signals. Each draft carries a class from a closed
+  list, CWE suggestions, conditions, an exploitability **assessment** (there is no "confirmed"), validation steps and a remediation, and
+  waits for a person. Exit code `3` now means a complete collection with drafts to review.
+- Validation steps are built from nine typed templates and checked against the scope before storage (six rules, each dropped step
+  reported). They are read-only text for a person; the tool runs none of them and writes no exploit, payload or attack chain.
+- `findings list|show|review`: a review needs a named reviewer and a reason and the first eight characters of the id typed back; the
+  decision (`confirmed`, `not_exploitable`, `inconclusive`) is kept exactly, the reason is redacted, and a refusal is audited.
+- `report export RUN --format json|md --output PATH`: one local file built from the database, no artifact content, byte-reproducible,
+  new regular file only (never replaces, follows a link, or writes into the data directory), mode `0600`, sha256 printed.
+- Migration `0002`: immutable finding details, append-only reviews, `runs.planned_operations`.
+- Decisions D-E61 to D-E65 (the rules, storage, review mapping, report contents and CLI) are approved (2026-11-21).
+
+### Fixed (found while testing M3)
+- A long value quoted from a target (a host or banner at the allowed shape's maximum length) could exceed the schema's fact limit and fail
+  the whole run, so a hostile target could stop drafting. A fact is now quoted only when the finished text fits, and titles and
+  conditions are bounded.
+
 ### Added (M2: offline collectors)
 - `scoped-agent run --scope FILE --fixture PACK` collects DNS, TLS, HTTP and AI-system evidence from a fixture pack, one operation at a
   time in plan order, with no socket. `scoped-agent observations show RUN` prints what was stored. `--live` is refused.

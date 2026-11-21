@@ -15,7 +15,7 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
                         │
             artifact file (content-addressed, atomic)  +  artifacts row
                         │
-              deterministic correlator ──► finding drafts (linked to observations)
+              deterministic rules (M3, no model, no network) ──► finding drafts (linked to observations, immutable details)
                         │
               [M4: redacted, capped, typed prompt] ──► model ──► validated claims
                         │
@@ -35,13 +35,15 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 | Cookies, API keys, authorization values | **never** (replaced before storage) | | `[REDACTED]` or a keyed fingerprint | n/a |
 | Prompt sent to a model (M4) | hash only by default | `audit_events` | model name, prompt version, input hash, budget | with the run |
 | Audit events | yes, append-only, chained | `audit_events` | | with the run |
-| Reviewer decision | yes | `finding_drafts`, `audit_events` | reviewer id, reason, evidence ids | with the run |
+| Finding draft | yes | `finding_drafts`, `finding_details` (immutable), `finding_evidence` | class, conditions, assessment, validation steps, evidence ids | with the run |
+| Reviewer decision | yes, **redacted** | `finding_reviews` (append-only), `audit_events` | decision, reviewer id, reason, status after | with the run |
+| A report | a file the operator asks for | the path they name (never inside the data directory), mode `0600` | JSON or Markdown built from the rows above: hashes, never artifact content | until the operator deletes it |
 
 ## What leaves the machine
 
 In 0.x, **nothing**. There is no network call. An optional model adapter (M4) is disabled by default; when
 enabled it receives only redacted, truncated, structured observations of one run, labelled untrusted, and never
-raw bodies unless the operator sets `send_raw_body` explicitly. A report is a local file the operator exports.
+raw bodies unless the operator sets `send_raw_body` explicitly. A report is a local file the operator exports (`docs/correlator.md`, Reports): it holds hashes, drafts and reviews, never artifact content.
 
 ## Permissions on disk
 

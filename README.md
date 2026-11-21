@@ -4,9 +4,10 @@ An auditable, **local-first** assistant that collects bounded reconnaissance evi
 targets, keeps that evidence tamper-evident and redacted, and drafts observations that **a human must review**.
 It is not an autonomous exploitation agent and it never decides that something is a vulnerability.
 
-**Status: pre-alpha, milestones M0 to M2.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
-YAML file), and it is **offline-only**: it opens no network connection, and live mode is deliberately not built. Correlation,
-finding drafts and reports are the next milestone (M3). The contract is in `docs/`, the decisions in `DECISIONS.md`.
+**Status: pre-alpha, milestones M0 to M3.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
+YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: it
+opens no network connection, and live mode is deliberately not built. The contract is in `docs/`, the decisions in `DECISIONS.md`
+(all approved, D-E01 to D-E65).
 
 ## What it does
 
@@ -23,7 +24,7 @@ those targets and keeps it in a form you can defend afterwards:
 3. **Redacts and stores it safely.** Cookies, keys and tokens are replaced before anything is written; every artifact is named by its
    hash; the files are private; evidence expires after 30 days unless you say otherwise.
 4. **Logs everything tamper-evidently.** Every step, and every refused attempt, is a hash-chained audit entry.
-5. **Drafts findings, and stops.** It names the kind of flaw, the evidence behind it, the conditions under which it matters, whether
+5. **Drafts findings, and stops.** (Built: twelve rules, `docs/correlator.md`.) It names the kind of flaw, the evidence behind it, the conditions under which it matters, whether
    the evidence supports a way in (an assessment, never a confirmation) and the read-only steps a person can run to check it
    (`docs/finding-assessment.md`). It never writes an exploit. A draft is never a finding: only a human reviewer can validate one, and an AI model (optional,
    off by default) has no way to choose targets, run tools or mark anything verified.
@@ -31,11 +32,13 @@ those targets and keeps it in a form you can defend afterwards:
 It is for the *evidence* part of an assessment: what was observed, how, when, and what is still unverified. It is not a scanner,
 not an exploit tool and not an autonomous agent.
 
-**Where it is today.** Scope checking, the database, the audit trail and the state machines exist, and so do the offline
-collectors: DNS, TLS, HTTP and AI-reply evidence is read from a fixture pack, redacted and stored, and every run reports its
-coverage (an operation that errored or had no answer makes the run exit `2`). Nothing is correlated or drafted yet, so a run that
-exits `0` means "the collection was complete", never "nothing is wrong". Live remote collection is an approved design
-(`docs/remote-live-design.md`) that is built last and reviewed again before use.
+**Where it is today.** Scope checking, the database, the audit trail and the state machines exist, and so do the offline collectors,
+the rule catalogue, review and reports. DNS, TLS, HTTP and AI-reply evidence is read from a fixture pack, redacted and stored; rules
+draft findings from it (each a draft, with a class, conditions, an assessment and read-only validation steps); a person reviews each
+draft; a report can be exported. Every run reports its coverage (an operation that errored or had no answer makes it exit `2`), and a
+complete collection with drafts exits `3`. No draft is not proof that nothing is wrong: twelve rules cover only some flaws
+(`LIMITATIONS.md`). Live remote collection is an approved design (`docs/remote-live-design.md`) that is built last and reviewed
+again before use.
 
 ## Install and try it
 
@@ -54,6 +57,10 @@ scoped-agent scope validate scope.yaml    # parse it, show its hash and the oper
 scoped-agent db upgrade                   # create the local evidence database (private files, ~/.local/share/scopedagent)
 scoped-agent run --scope scope.yaml --fixture pack.yaml   # collect from a fixture pack; prints the coverage
 scoped-agent runs list                    # list recorded runs
+scoped-agent findings list RUN_ID         # the drafts of a run, each labelled a draft
+scoped-agent findings show ID             # one draft in full: conditions, assessment, validation steps
+scoped-agent findings review ID --decision confirmed --reviewer NAME --reason TEXT   # a person decides (you type the id back)
+scoped-agent report export RUN_ID --format md --output report.md   # a new file only, no artifact content
 scoped-agent observations show RUN_ID     # the redacted observations of one run
 scoped-agent audit verify RUN_ID          # recompute a run's tamper-evident audit chain
 ```
@@ -66,6 +73,8 @@ git clone https://github.com/MDPorsch/scoped-evidence-agent && cd scoped-evidenc
 uv run scoped-agent db upgrade
 uv run scoped-agent run --scope fixtures/approved_scope/lab-misconfigured.yaml --fixture fixtures/web_responses/misconfigured.yaml
 uv run scoped-agent observations show RUN_ID      # RUN_ID is printed by the run; `runs list` shows it again
+uv run scoped-agent findings list RUN_ID          # the misconfigured lab host gives eight drafts
+uv run scoped-agent findings show ID              # ID is the first eight characters from the list
 ```
 
 `scope validate` refuses wildcards, IP addresses, expired dates, redirects and ambiguous names with a stable error code. The

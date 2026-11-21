@@ -11,26 +11,27 @@
 | `--version` | Prints the version and exits. | |
 | `scope init FILE [--force]` | Writes a valid offline starter scope on a reserved `.invalid` host, expiring in 30 days, with comments on what to edit. Never follows a link, never replaces a file without `--force`, never creates directories. | Contacts nothing; the starter is parsed before it is written. |
 | `scope validate FILE` | Parses, normalises and prints the scope, its hash and the planned operation count. | Exit `1` on any refusal; nothing is stored. |
-| `run --scope FILE --fixture PACK [--live]` | Offline run: validate the scope, record the engagement, collect from the fixture pack (one YAML file), store redacted evidence, and print the coverage. Correlation and drafts arrive in M3. | No socket; deterministic, one operation at a time in plan order. `--live` is refused in 0.x. |
+| `run --scope FILE --fixture PACK [--live]` | Offline run: validate the scope, record the engagement, collect from the fixture pack (one YAML file), store redacted evidence, apply the rule catalogue and store drafts, and print the coverage and how many drafts await review. | No socket; deterministic, one operation at a time in plan order. `--live` is refused in 0.x. |
 | `runs list [--limit N --offset M]` | Local run history. | Bounded pagination (limit at most 100). |
 | `observations show RUN [--limit N --offset M --json]` | The redacted observations of one run in collection order: a table, or with `--json` each stored payload as one line. | Bounded pagination (limit at most 100); stored data is already redacted, so nothing here can print a raw secret. |
-| `findings draft RUN` | Evidence-linked drafts with confidence, assumptions and unknowns. | A draft is labelled a draft. |
-| `findings review ID --decision D --reviewer NAME --reason TEXT` | Human review. | Prompts for typed confirmation; refuses non-human actors; audited. |
-| `report export RUN --format json\|md --output PATH` | Local report. | Safe-path checks, no overwrite, drafts labelled, hashes included. |
+| `findings list RUN` | The drafts of one run, each labelled as a draft. (Replaces the contract's `findings draft RUN`: `run` already drafts, D-E65.) | Read-only. |
+| `findings show ID` | One draft in full: class, CWE suggestions, conditions, quoted target data, exploitability assessment, validation steps with both branches, decision guide, remediation and reviews. `ID` is a full id or its first eight characters or more. | Read-only; nothing a target said appears except quoted data of a strict shape. |
+| `findings review ID --decision confirmed\|not_exploitable\|inconclusive --reviewer NAME --reason TEXT` | Record a person's decision. | You type the first eight characters of the finding id to confirm; there is no flag that skips it. Refuses a worker or a model, a blank reason or reviewer, and a finding that is not waiting for review. Redacts the reason, audits the decision. |
+| `report export RUN --format json\|md --output PATH` | One local report file built from the database. | A new file only: refused if it exists, if the directory does not exist, if a part of the path is a symbolic link or `..`, or if it is inside the data directory. Mode `0600`. Drafts labelled, no artifact content, no export time. Prints the file's sha256. |
 | `artifacts purge --before DATE` | Retention cleanup. | Only recorded sha256 files under the artifact root; symlinks refused; writes a receipt. |
 | `audit verify RUN` | Recomputes the audit hash chain of one run. | Read-only; exit `1` on a broken chain. |
 
 M1 delivers `--version`, `db upgrade`, `scope init`, `scope validate`, `runs list` and `audit verify`. M2 adds `run` and
-`observations show`. The rest arrive with the milestone that owns their data: drafts and reports (M3), the model (M4).
+`observations show`. M3 adds drafting inside `run`, `findings list|show|review` and `report export`. The model arrives in M4.
 
 ## Exit codes (D-E09)
 
 | Code | Meaning |
 |---|---|
-| `0` | The collection was complete and there is nothing for a human to review. Until M3 there is no correlation, so a complete collection is `0` and says so: *no findings drafted is not a finding of no problems*. |
+| `0` | The collection was complete and no draft was made. That is not proof that nothing is wrong: only what the scope lists was collected, and only the rules in `docs/correlator.md` were applied. |
 | `1` | Validation or policy failure: bad scope, expired scope, refused mode, changed scope file, broken audit chain. |
 | `2` | The run could not do its job: infrastructure failure, or any operation that errored, timed out, was refused or ran out of budget, so the collection is **incomplete**. |
-| `3` | The collection was complete and there are drafts that need human review. |
+| `3` | The collection was complete and there are drafts that need human review (`findings list RUN`). |
 
 Incomplete is never `0`. The report states the coverage: planned operations, completed, errored, refused.
 
@@ -84,3 +85,63 @@ $ echo $?
 
 The second run's pack answers only DNS, so the other four operations are recorded as `adapter_error` and the run is incomplete (exit `2`),
 never a quiet success. `state: DRAFTED` is the end of the pipeline today; nothing is drafted until M3.
+
+## Example (M3): drafts, a review and a report
+
+Real output from the shipped fixtures (ids, hashes and times differ on every run of your own):
+
+```text
+$ scoped-agent run --scope fixtures/approved_scope/lab-misconfigured.yaml --fixture fixtures/web_responses/misconfigured.yaml
+run a0d2557b700a46e2bcb45c579c38e7d1   state: DRAFTED
+scope sha256: 9de5beb7651f062e64cd09bff2abf44aaaa797f8f5b52a7e27c9d7ae6c7157a1
+planned operations: 6   observations recorded: 6   artifacts stored: 3   redactions: 2
+coverage: complete
+findings drafted: 8 (awaiting review)
+note: a draft is not a finding: a person must review each one (findings list RUN, findings show ID, findings review ID).
+note: no draft is not proof that nothing is wrong: only what the scope lists was collected, and only the rules in docs/correlator.md were applied.
+note: the scope file is a restriction, not proof of authorization. This tool cannot verify that anyone authorized the test: confirm authorization outside it.
+$ echo $?
+3
+
+$ scoped-agent findings list a0d2557b700a46e2bcb45c579c38e7d1
+id        status                 class                                confidence  title
+b7ae063f  DRAFT: not validated   tls_misconfiguration                       0.90  TLS configuration weaknesses on bad.example.invalid:443
+99bd32bc  DRAFT: not validated   missing_security_header                    0.70  Missing security headers on bad.example.invalid:443
+0dd186e4  DRAFT: not validated   information_disclosure                     0.80  Software version disclosed by bad.example.invalid:443
+...
+
+$ scoped-agent findings show b7ae063f
+DRAFT: not validated
+title: TLS configuration weaknesses on bad.example.invalid:443
+...
+conditions:
+  - The service negotiated TLSv1.0, a protocol version that is deprecated.
+  - The certificate expired on 2026-01-01T00:00:00Z, before this observation was collected.
+  ...
+exploitability: conditional (an assessment, not a confirmation)
+...
+validation steps (read-only, run by a person):
+  2. inspect_certificate_field
+     command: openssl s_client -connect bad.example.invalid:443 -servername bad.example.invalid -verify_return_error
+     if the condition holds: The client reports what the condition says, or the certificate fields show it.
+     if it does not: The certificate verifies and its fields differ from the condition. ...
+     must not: send credentials, disable certificate verification, send application data, repeat more than once
+...
+
+$ scoped-agent findings review b7ae063f --decision confirmed --reviewer alice --reason "ran the steps; the client reported an expired certificate"
+Type the first 8 characters of the finding id (b7ae063f) to confirm: b7ae063f
+finding b7ae063f: confirmed -> VALIDATED (reviewer alice)
+
+$ scoped-agent report export a0d2557b700a46e2bcb45c579c38e7d1 --format md --output report.md
+wrote report.md (31814 bytes)
+sha256: d924733d7540983f67f1c5d7f57d2bbf2805cdd13b6ecb83c65dcd6518c69824
+$ scoped-agent report export a0d2557b700a46e2bcb45c579c38e7d1 --format md --output report.md
+error REPORT-001: the output file already exists: nothing was written
+$ echo $?
+1
+```
+
+`confirmed` validates the finding, `not_exploitable` closes it as a false positive (the review keeps the exact decision) and
+`inconclusive` records the review and leaves it open. The first review of a run moves the run to `HUMAN_REVIEW`. A run is never
+moved to `EXPORTED` in 0.x, so an export can be repeated, and exporting does not change the run or its audit trail.
+

@@ -1,6 +1,6 @@
 # The correlator, drafts, review and reports (M3 contract)
 
-Status: **built in M3. D-E56 to D-E60 are approved; D-E61 to D-E65 (below) are proposed and wait for the owner's review.** This file
+Status: **built in M3. D-E56 to D-E65 are approved by the owner (D-E61 to D-E65 on 2026-11-21).** This file
 makes `docs/finding-assessment.md` concrete: which rules exist, what each one reads and says, how a step is checked, how a draft is
 stored and reviewed, and what a report contains. Nothing here sends a request; the correlator reads stored observations only.
 
@@ -93,7 +93,7 @@ rerequest_listed_path       curl --silent --show-error --dump-header - --output 
                             (with --head instead of the output flags when the recorded request was HEAD)
 read_public_document        curl --silent --show-error --max-time 10 --max-redirs 0 SCHEME://HOST[:PORT]PATH
 re_resolve_name             dig +noall +answer HOST TYPE
-check_cors_for_declared_origin  curl --silent --show-error --head --request OPTIONS --header 'Origin: ORIGIN' --max-time 10 SCHEME://HOST[:PORT]PATH
+check_cors_for_declared_origin  curl --silent --show-error --request OPTIONS --header 'Origin: ORIGIN' --dump-header - --output /dev/null --max-time 10 --max-redirs 0 SCHEME://HOST[:PORT]PATH
 ```
 
 `rerun_library_probe` and `owner_confirmation` have no invocation. `rerun_library_probe` says plainly that it needs the tool's live
@@ -133,12 +133,12 @@ head hash; and fixed notes (a draft is not a finding; authorization is the opera
   file, then linked into place so an existing file can never be replaced).
 * **Drafts are labelled** `DRAFT: not validated` in both formats until a person validates them.
 
-## Decisions proposed for this milestone
+## Decisions for this milestone (approved 2026-11-21)
 
 | ID | Decision | Status |
 |---|---|---|
-| D-E61 | **The closed class list and the version-1 rule catalogue above.** Adding a class or a rule is a reviewed change with its tests and mutants. | Proposed |
-| D-E62 | **Storage:** a finding's details are immutable (`finding_details`, update and delete refused); reviews are append-only (`finding_reviews`); a run records `planned_operations`. Migration `0002`. `category` holds the class id and now allows `_`. | Proposed |
-| D-E63 | **Review mapping, typed confirmation and run state** as in the Review section; `confirmed`/`not_exploitable`/`inconclusive` map to `VALIDATED`/`FALSE_POSITIVE`/unchanged. | Proposed (review-gated: who may validate) |
-| D-E64 | **Report contents, privacy, reproducibility and path rules** as in the Reports section. | Proposed (review-gated: reporting privacy) |
-| D-E65 | **CLI:** `run` also correlates; `findings list RUN` and `findings show ID` replace the contract's `findings draft RUN` (a run already drafts); exit `3` means a complete collection with drafts to review. | Proposed |
+| D-E61 | **The closed class list and the version-1 rule catalogue above.** Adding a class or a rule is a reviewed change with its tests and mutants. | Approved |
+| D-E62 | **Storage:** a finding's details are immutable (`finding_details`, update and delete refused); reviews are append-only (`finding_reviews`); a run records `planned_operations`. Migration `0002`. `category` holds the class id and now allows `_`. | Approved |
+| D-E63 | **Review mapping, typed confirmation and run state** as in the Review section; `confirmed`/`not_exploitable`/`inconclusive` map to `VALIDATED`/`FALSE_POSITIVE`/unchanged. | Approved |
+| D-E64 | **Report contents, privacy, reproducibility and path rules** as in the Reports section. | Approved |
+| D-E65 | **CLI:** `run` also correlates; `findings list RUN` and `findings show ID` replace the contract's `findings draft RUN` (a run already drafts); exit `3` means a complete collection with drafts to review. | Approved |

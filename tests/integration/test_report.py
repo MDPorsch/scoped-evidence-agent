@@ -18,10 +18,10 @@ from scopedagent.cli import AppContext, app
 from scopedagent.domain.findings import ReviewDecision
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, ReportError
-from scopedagent.output.report import build_report, render_json, render_markdown, write_report
+from scopedagent.output.report import build_report, md_escape, render_json, render_markdown, write_report
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.repositories import review_finding
-from tests.support import FIXTURES, NOW, SCOPE_FILES, assemble, findings_of, make_env, run_pack, scope_dict, dump
+from tests.support import FIXTURES, NOW, SCOPE_FILES, assemble, dump, findings_of, make_env, run_pack, scope_dict
 
 pytestmark = pytest.mark.milestone("M3")
 
@@ -249,7 +249,9 @@ def test_two_runs_of_one_pack_differ_only_in_their_ids(env: Any) -> None:
         for index, finding in enumerate(report["findings"]):
             blob = blob.replace(finding["id"], f"FINDING-{index}")
         for index, observation in enumerate(report["observations"]):
-            blob = blob.replace(observation["id"], f"OBSERVATION-{index}")
+            blob = blob.replace(observation["id"], f"OBSERVATION-{index}").replace(
+                observation["id"][:8], f"OBS-{index}"
+            )
         return blob.replace(report["run"]["id"], "RUN").replace(report["audit"]["head_hash"], "HEAD")
 
     assert scrub(first) == scrub(second)
@@ -337,7 +339,7 @@ def test_the_markdown_and_the_json_say_the_same_things(env: Any) -> None:
     for finding in report["findings"]:
         assert finding["title"] in md and finding["id"] in md
         for condition in finding["details"]["conditions"]:
-            assert condition.replace("|", "\\|") in md or condition in md
+            assert md_escape(condition) in md
     for observation in report["observations"]:
         assert observation["id"] in md and observation["source_hash"] in md
 
@@ -603,3 +605,247 @@ def test_export_refuses_a_path_inside_the_data_directory(data_dir: Path) -> None
         str(data_dir),
     )
     assert result.exit_code == 1 and "REPORT-001" in result.output and not (data_dir / "r.json").exists()
+
+
+# ----------------------------------------------------------------------------------------------- odd findings ----
+def test_a_finding_stored_without_an_assessment_is_reported_without_one(env: Any) -> None:
+    result = run_pack(env, "healthy")
+    db, _, _ = env
+    with db.begin() as session:
+        first = session.execute(
+            text("SELECT id FROM observations WHERE run_id = :r ORDER BY rowid LIMIT 1"), {"r": result.run_id}
+        ).scalar()
+        session.execute(
+            text(
+                "INSERT INTO finding_drafts (id, run_id, title, category, confidence, status, reviewer_id, revision, created_at) VALUES ('plainfinding01', :r, 'A plain draft', 'tls-misconfiguration', 0.5, 'DRAFT', NULL, 1, '2026-11-20T12:00:00.000000Z')"
+            ),
+            {"r": result.run_id},
+        )
+        session.execute(
+            text("INSERT INTO finding_evidence (finding_id, observation_id, run_id) VALUES ('plainfinding01', :o, :r)"),
+            {"o": first, "r": result.run_id},
+        )
+        report = build_report(session, result.run_id, tool_version=__version__)
+    (finding,) = report["findings"]
+    assert finding["details"] is None and finding["label"] == "DRAFT: not validated" and finding["evidence"] == [first]
+    md = render_markdown(report)
+    assert "A plain draft" in md and "Conditions" not in md and "- none" in md
+    assert json.loads(render_json(report))["findings"][0]["details"] is None
+
+
+def test_a_run_with_no_drafts_says_that_is_not_proof_of_anything(env: Any) -> None:
+    report, _ = report_for(env, "healthy")
+    assert report["findings"] == []
+    md = render_markdown(report)
+    assert "No draft was made. That is not proof that nothing is wrong." in md
+    assert report["coverage"]["complete"] is True
+
+
+def test_steps_the_checker_dropped_are_listed_in_the_markdown(env: Any) -> None:
+    report, _ = report_for(env)
+    report["findings"][0]["details"]["validation_steps_dropped"] = [{"kind": "send_payload", "rule": "VS-01"}]
+    md = render_markdown(report)
+    assert "Steps dropped by the checker: `send_payload` (VS-01)" in md
+
+
+def test_the_markdown_lists_every_step_with_its_command_and_both_branches(env: Any) -> None:
+    report, _ = report_for(env)
+    md = render_markdown(report)
+    assert (
+        "`openssl s_client -connect bad.example.invalid:443 -servername bad.example.invalid -verify_return_error`" in md
+    )
+    assert md.count("if the condition holds:") >= 8 and md.count("if it does not:") >= 8
+    assert (
+        "Decision guide" in md
+        and "Remediation:" in md
+        and "CWE suggestions (to verify): CWE-295, CWE-326, CWE-327" in md
+    )
+
+
+# ------------------------------------------------------------------------------------------- more edges ----
+def test_the_approval_reference_is_in_the_report(env: Any) -> None:
+    report, _ = report_for(env)
+    assert report["engagement"]["owner_approval_ref"] == "local-lab-consent"
+
+
+def test_artifacts_are_listed_in_the_order_they_were_stored(env: Any) -> None:
+    report, run_id = report_for(env)
+    db, _, _ = env
+    with db.begin() as session:
+        stored = list(
+            session.execute(
+                text("SELECT sha256 FROM artifacts WHERE run_id = :r ORDER BY rowid"), {"r": run_id}
+            ).scalars()
+        )
+    assert stored != sorted(stored), (
+        "the shipped pack must store its artifacts out of hash order for this test to mean anything"
+    )
+    assert [a["sha256"] for a in report["artifacts"]] == stored
+
+
+@pytest.mark.parametrize(("planned", "complete"), [(0, False), (2, False), (6, True), (7, False)])
+def test_a_run_is_complete_only_when_every_planned_operation_was_ok(env: Any, planned: int, complete: bool) -> None:
+    result = run_pack(env, "misconfigured")
+    db, _, _ = env
+    with db.begin() as session:
+        session.execute(
+            text("UPDATE runs SET planned_operations = :p WHERE id = :r"), {"p": planned, "r": result.run_id}
+        )
+        report = build_report(session, result.run_id, tool_version=__version__)
+    assert report["coverage"]["complete"] is complete
+
+
+def test_other_outcomes_are_listed_in_name_order_not_in_the_order_they_happened(env: Any, tmp_path: Path) -> None:
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+    from tests.support import pack_variant  # noqa: PLC0415
+
+    data = scope_dict("misconfigured")
+    data["max_requests"] = 5
+
+    def edit(pack_data: dict[str, Any]) -> None:
+        pack_data["http"]["https://bad.example.invalid:443/"] = {"error": "timeout"}
+
+    report, _ = report_for(
+        env, loaded=parse_scope(dump(data), now=NOW), pack_path=pack_variant(tmp_path, "misconfigured", edit)
+    )
+    assert list(report["coverage"]["other"]) == ["budget_exhausted", "timeout"]
+
+
+@pytest.mark.parametrize(
+    ("status", "label"),
+    [
+        ("DRAFT", "DRAFT: not validated"),
+        ("NEEDS_VALIDATION", "DRAFT: not validated"),
+        ("VALIDATED", "VALIDATED by a reviewer"),
+        ("FALSE_POSITIVE", "FALSE_POSITIVE: closed by a reviewer"),
+        ("REMEDIATED", "REMEDIATED: reported fixed, not yet verified"),
+        ("VERIFIED", "VERIFIED: the fix was checked by a reviewer"),
+    ],
+)
+def test_every_status_has_its_own_label(env: Any, status: str, label: str) -> None:
+    result = run_pack(env, "misconfigured")
+    db, _, _ = env
+    with db.begin() as session:
+        session.execute(
+            text("UPDATE finding_drafts SET status = :s WHERE run_id = :r"), {"s": status, "r": result.run_id}
+        )
+        report = build_report(session, result.run_id, tool_version=__version__)
+    assert {f["label"] for f in report["findings"]} == {label}
+    assert md_label_count(render_markdown(report), label) == 8
+
+
+def md_label_count(md: str, label: str) -> int:
+    return md.count(f"**{md_escape(label)}**")
+
+
+def test_the_json_stays_ascii_when_a_reviewer_types_something_else(env: Any) -> None:
+    result = run_pack(env, "misconfigured")
+    db, _, _ = env
+    finding_id = findings_of(db, result.run_id)[0][0].id
+    confirm(env, finding_id, ReviewDecision.CONFIRMED, "caf\u00e9 checked \u2713")
+    with db.begin() as session:
+        report = build_report(session, result.run_id, tool_version=__version__)
+    rendered = render_json(report)
+    assert rendered.isascii() and "\\u00e9" in rendered
+    assert json.loads(rendered)["findings"][0]["reviews"][0]["reason"] == "caf\u00e9 checked \u2713"
+
+
+def test_markdown_escaping_covers_every_special_character_and_flattens_lines() -> None:
+    typed = "a\\b`c*d_e[f]g(h)i<j>k&l|m#n\n o"
+    assert md_escape(typed) == r"a\\b\`c\*d\_e\[f\]g\(h\)i&lt;j&gt;k&amp;l\|m\#n o"
+    assert md_escape("plain text 1.2-3") == "plain text 1.2-3"
+    assert md_escape(5) == "5"
+
+
+def test_a_code_span_cannot_be_broken_out_of_or_span_lines() -> None:
+    from scopedagent.output.report import _code  # noqa: PLC0415
+
+    assert _code("a`b\nc   d") == "`a'b c d`"
+
+
+def test_the_markdown_says_so_when_a_run_has_no_plan_an_incomplete_collection_or_a_broken_chain(
+    env: Any, tmp_path: Path
+) -> None:
+    result = run_pack(env, "misconfigured")
+    db, _, data_dir = env
+    with db.begin() as session:
+        complete = render_markdown(build_report(session, result.run_id, tool_version=__version__))
+    assert "- planned operations: 6" in complete and "- collection complete: yes" in complete
+    assert "- other outcomes: none" in complete and "- chain verified: yes" in complete
+    assert "ended not ended" in complete and "started 2026" in complete
+    with db.begin() as session:
+        session.execute(
+            text("UPDATE runs SET planned_operations = NULL, started_at = NULL WHERE id = :r"), {"r": result.run_id}
+        )
+        unplanned = render_markdown(build_report(session, result.run_id, tool_version=__version__))
+    assert (
+        "- planned operations: unknown" in unplanned
+        and "- collection complete: no" in unplanned
+        and "started not started" in unplanned
+    )
+    import sqlite3  # noqa: PLC0415
+
+    connection = sqlite3.connect(data_dir.db_path)
+    try:
+        connection.execute("DROP TRIGGER audit_events_no_update")
+        connection.execute(
+            "UPDATE audit_events SET reason = 'tampered' WHERE id = (SELECT min(id) FROM audit_events WHERE run_id = ?)",
+            (result.run_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with db.begin() as session:
+        broken = render_markdown(build_report(session, result.run_id, tool_version=__version__))
+    assert "- chain verified: NO: the chain is broken" in broken
+
+
+def test_an_incomplete_run_says_which_outcomes_it_had(env: Any) -> None:
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+
+    data = scope_dict("misconfigured")
+    data["max_requests"] = 3
+    report, _ = report_for(env, loaded=parse_scope(dump(data), now=NOW))
+    md = render_markdown(report)
+    assert "- other outcomes: budget_exhausted 3" in md and "- collection complete: no" in md
+
+
+def test_a_data_directory_named_through_a_symbolic_link_is_still_protected(env: Any, tmp_path: Path) -> None:
+    data_root: Path = env[2].root
+    alias = tmp_path / "alias-of-data"
+    alias.symlink_to(data_root)
+    with pytest.raises(ReportError) as caught:
+        write_report(data_root / "report.json", "x\n", data_dir=alias)
+    assert caught.value.code is ErrorCode.REPORT_001 and "data directory" in str(caught.value)
+
+
+def test_the_cli_report_names_the_version_that_wrote_it(tmp_path: Path) -> None:
+    data = tmp_path / "cli-data"
+    assert cli("db", "upgrade", "--data-dir", str(data)).exit_code == 0
+    run_id = collect(data)
+    assert (
+        cli(
+            "report",
+            "export",
+            run_id,
+            "--format",
+            "json",
+            "--output",
+            str(tmp_path / "v.json"),
+            "--data-dir",
+            str(data),
+        ).exit_code
+        == 0
+    )
+    assert json.loads((tmp_path / "v.json").read_text())["tool"]["version"] == __version__
+
+
+def test_a_run_with_a_plan_of_zero_and_nothing_collected_is_not_complete(env: Any) -> None:
+    from tests.support import seed  # noqa: PLC0415
+
+    db, _, _ = env
+    with db.begin() as session:
+        seed(session, planned_operations=0)
+        report = build_report(session, "r1", tool_version=__version__)
+    assert report["coverage"] == {"planned": 0, "recorded": 0, "ok": 0, "other": {}, "complete": False}
+    assert report["observations"] == [] and report["findings"] == [] and report["artifacts"] == []

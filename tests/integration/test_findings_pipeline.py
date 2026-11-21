@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -468,7 +467,7 @@ def test_the_head_revision_is_0002_and_an_unknown_one_is_still_refused(tmp_path:
     assert HEAD_REVISION == "0002"
     data_dir = DataDir(tmp_path / "data")
     upgrade_database(data_dir)
-    with sqlite3.connect(data_dir.db_path) as connection:
+    with raw_connection(data_dir.db_path) as connection:
         connection.execute("UPDATE alembic_version SET version_num = '0001'")
     from scopedagent.errors import StoreError  # noqa: PLC0415
 
@@ -490,3 +489,72 @@ def test_the_fixture_goldens_name_only_rules_of_the_catalogue() -> None:
     known = {r.id for r in RULES}
     for name in ALL:
         assert {d["rule_id"] for d in finding_golden(name)} <= known
+
+
+# ------------------------------------------------------------------------------------- stored equals derived ----
+@pytest.mark.parametrize("name", ALL)
+def test_what_is_stored_is_exactly_what_the_rules_say_for_the_stored_observations(env: Any, name: str) -> None:
+    from scopedagent.pipeline.correlate import details_for, load_views  # noqa: PLC0415
+    from scopedagent.pipeline.rules import RuleContext, run_rules  # noqa: PLC0415
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+    from tests.support import scope_text  # noqa: PLC0415
+
+    result = run_pack(env, name)
+    db, _, _ = env
+    config = parse_scope(scope_text(name), now=NOW).config
+    with db.begin() as session:
+        derived = run_rules(RuleContext(load_views(session, result.run_id), config))
+    stored = findings_of(db, result.run_id)
+    assert len(stored) == len(derived)
+    for (finding, details), draft in zip(stored, derived, strict=True):
+        assert details.model_dump_json() == details_for(draft, config).model_dump_json()
+        assert (finding.title, finding.category, finding.confidence) == (
+            draft.title,
+            draft.vulnerability_class.value,
+            draft.confidence,
+        )
+        assert sorted(finding.evidence_ids) == sorted(draft.evidence)
+        assert details.remediation == draft.remediation and details.exploitability.basis == draft.basis
+
+
+def test_the_rule_and_its_version_are_stored_beside_the_details(env: Any) -> None:
+    result = run_pack(env, "misconfigured")
+    db, _, _ = env
+    with db.begin() as session:
+        rows = session.execute(text("SELECT rule_id, rule_version FROM finding_details ORDER BY rowid")).all()
+    assert [r[0] for r in rows] == [
+        "R-TLS-01",
+        "R-HDR-01",
+        "R-INFO-01",
+        "R-INFO-02",
+        "R-REDIR-01",
+        "R-API-01",
+        "R-CORS-01",
+        "R-DNS-01",
+    ]
+    assert {r[1] for r in rows} == {1} and result.findings == 8
+
+
+def test_a_failed_correlation_says_which_phase_failed_and_a_retry_keeps_the_plan(
+    env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scopedagent.domain.state_machine import Actor, ActorType  # noqa: PLC0415
+    from scopedagent.pipeline import correlate  # noqa: PLC0415
+    from scopedagent.storage.repositories import retry_run  # noqa: PLC0415
+
+    def boom(_context: Any) -> list[Any]:
+        raise RuntimeError("detail")
+
+    monkeypatch.setattr(correlate, "run_rules", boom)
+    result = run_pack(env, "misconfigured")
+    db, _, _ = env
+    with db.begin() as session:
+        reason = session.execute(
+            text(
+                "SELECT reason FROM audit_events WHERE run_id = :r AND action = 'run.transition' ORDER BY id DESC LIMIT 1"
+            ),
+            {"r": result.run_id},
+        ).scalar()
+        assert reason == "CORRELATING -> FAILED: RuntimeError while correlating"
+        fresh = retry_run(session, result.run_id, actor=Actor(ActorType.HUMAN, "alice"), now=NOW)
+        assert fresh.planned_operations == 6

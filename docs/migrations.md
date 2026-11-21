@@ -5,7 +5,10 @@ database at a revision this version does not know is refused (`STORE-002`) with 
 
 * Revision `0001` is explicit DDL, not generated from the models, so changing a model can never rewrite what 0001 means.
   `tests/integration/test_database.py` compares the migrated database with the models: tables, columns, unique constraints,
-  foreign keys, every CHECK constraint, and the three triggers.
+  foreign keys, every CHECK constraint, and the triggers.
+* Revision `0002` (M3, D-E62) adds `runs.planned_operations` (NULL for a run made before it), the immutable `finding_details`
+  table and the append-only `finding_reviews` table, each with a no-update and a no-delete trigger. A database at `0001` is
+  refused with the command to run, and `db upgrade` brings it forward and keeps its data (tested).
 * Triggers: `audit_events_no_update` and `audit_events_no_delete` (the audit trail is append-only) and
   `observations_target_in_engagement` (an observation must belong to a target of the run's own engagement).
 * **Forward only.** There is no downgrade: it raises. To go back, restore the database file from a backup made before the upgrade.

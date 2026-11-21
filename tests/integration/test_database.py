@@ -29,6 +29,8 @@ EXPECTED_TABLES = {
     "artifacts",
     "finding_drafts",
     "finding_evidence",
+    "finding_details",
+    "finding_reviews",
     "audit_events",
     "alembic_version",
 }
@@ -602,8 +604,9 @@ def test_the_migrated_check_constraints_are_exactly_the_models(data_dir: DataDir
         from_migration, from_models = _check_bodies(migrated_sql[table]), _check_bodies(modelled_sql[table])
         assert from_migration == from_models, table
         total += len(from_migration)
-    # engagements 2, targets 5, runs 6, observations 5, artifacts 3, finding_drafts 4, audit_events 4: the parser found them all
-    assert total == 29
+    # engagements 2, targets 5, runs 7, observations 5, artifacts 3, finding_drafts 4, finding_details 1, finding_reviews 4,
+    # audit_events 4: the parser found them all
+    assert total == 35
 
 
 def test_the_migrated_unique_constraints_and_foreign_keys_are_exactly_the_models(
@@ -643,7 +646,15 @@ def test_the_migrated_unique_constraints_and_foreign_keys_are_exactly_the_models
 def test_the_triggers_exist_and_there_are_no_others(db: Any) -> None:
     with db.begin() as session:
         names = set(session.execute(text("SELECT name FROM sqlite_master WHERE type = 'trigger'")).scalars())
-    assert names == {"audit_events_no_update", "audit_events_no_delete", "observations_target_in_engagement"}
+    assert names == {
+        "audit_events_no_update",
+        "audit_events_no_delete",
+        "observations_target_in_engagement",
+        "finding_details_no_update",
+        "finding_details_no_delete",
+        "finding_reviews_no_update",
+        "finding_reviews_no_delete",
+    }
 
 
 # ------------------------------------------------------------------------- refusals worth proving ----
@@ -679,7 +690,7 @@ def test_a_store_owned_by_someone_else_is_refused(data_dir: DataDir, monkeypatch
 def test_two_version_rows_are_not_a_known_revision(data_dir: DataDir) -> None:
     upgrade_database(data_dir)
     with raw_connection(data_dir.db_path) as raw:
-        raw.execute("INSERT INTO alembic_version (version_num) VALUES ('0002')")
+        raw.execute("INSERT INTO alembic_version (version_num) VALUES ('0001')")
     with pytest.raises(StoreError) as caught:
         open_database(data_dir)
     assert caught.value.code is ErrorCode.STORE_002

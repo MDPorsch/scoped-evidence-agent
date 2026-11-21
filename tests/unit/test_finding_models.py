@@ -222,6 +222,8 @@ def test_the_details_are_immutable_values() -> None:
         {"extra": 1},
         {"action": "Open it" + chr(0x202E) + " now."},
         {"action": "Open it\nnow."},
+        {"action": "Open it" + chr(0x2028) + "now."},
+        {"action": "Open it" + chr(0x2029) + "now."},
         {"action": "Open\x00 it."},
     ],
 )
@@ -245,3 +247,48 @@ def test_a_class_id_with_underscores_is_a_valid_category() -> None:
 def test_a_malformed_category_is_still_refused(category: str) -> None:
     with pytest.raises(ValidationError):
         FindingDraftCreate(title="A title", category=category, confidence=0.5)
+
+
+def test_a_cited_id_with_odd_characters_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        ValidationStep.model_validate(step(cites=["has space"]))
+    with pytest.raises(ValidationError):
+        ValidationStep.model_validate(step(cites=["x" * 65]))
+
+
+def test_a_step_whose_intrusiveness_does_not_match_its_kind_is_refused() -> None:
+    with pytest.raises(ValidationError, match="intrusiveness"):
+        ValidationStep.model_validate(step(intrusiveness="single_read"))
+
+
+def test_a_kind_without_an_invocation_cannot_carry_one() -> None:
+    with pytest.raises(ValidationError, match="no invocation"):
+        ValidationStep.model_validate(step(example_invocation="curl --silent https://bad.example.invalid/"))
+
+
+def test_steps_must_be_numbered_from_one_in_order() -> None:
+    with pytest.raises(ValidationError, match="numbered"):
+        FindingDetails.model_validate(details(validation_steps=[step(order=2)]))
+    with pytest.raises(ValidationError, match="numbered"):
+        FindingDetails.model_validate(details(validation_steps=[step(order=1), step(order=3)]))
+    assert FindingDetails.model_validate(details(validation_steps=[step(order=1), step(order=2)]))
+
+
+def test_nine_correctly_numbered_steps_are_still_refused() -> None:
+    nine = [step(order=i) for i in range(1, 10)]
+    with pytest.raises(ValidationError):
+        FindingDetails.model_validate(details(validation_steps=nine))
+    assert FindingDetails.model_validate(details(validation_steps=nine[:8]))
+
+
+@pytest.mark.parametrize(
+    "guide",
+    [
+        [],
+        [{"outcome": "a", "suggests": "confirmed"}],
+        [{"outcome": "a", "suggests": "confirmed"}, {"outcome": "b", "suggests": "inconclusive"}],
+    ],
+)
+def test_a_decision_guide_with_fewer_than_three_entries_is_refused(guide: list[dict[str, str]]) -> None:
+    with pytest.raises(ValidationError):
+        FindingDetails.model_validate(details(decision_guide=guide))
