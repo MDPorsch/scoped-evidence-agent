@@ -1,0 +1,74 @@
+pack: healthy
+dns:
+  lab.example.invalid:
+    status: ok
+    records:
+      A:
+      - 192.0.2.10
+      AAAA:
+      - 2001:db8::10
+tls:
+  lab.example.invalid:443:
+    status: ok
+    version: TLSv1.3
+    certificate:
+      subject_cn: lab.example.invalid
+      issuer_cn: Example Lab CA
+      san_dns:
+      - lab.example.invalid
+      not_before: '2026-06-01T00:00:00Z'
+      not_after: '2027-06-01T00:00:00Z'
+      signature_algorithm: ecdsa-with-SHA256
+      public_key:
+        type: ec
+        bits: 256
+      self_signed: false
+      sha256_fingerprint: f1ff2f8414b817f42594189efaf55017f2630cb4002194604b59e5ce41d0553b
+http:
+  https://lab.example.invalid:443/.well-known/security.txt:
+    status: 200
+    headers:
+      content-type:
+      - text/plain; charset=utf-8
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      content-security-policy:
+      - default-src 'none'
+      x-content-type-options:
+      - nosniff
+      server:
+      - lab
+    body: |
+      Contact: mailto:security@lab.example.invalid
+      Expires: 2027-06-01T00:00:00Z
+      Preferred-Languages: en
+  https://lab.example.invalid:443/openapi.json:
+    status: 200
+    headers:
+      content-type:
+      - application/json
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      content-security-policy:
+      - default-src 'none'
+      x-content-type-options:
+      - nosniff
+      server:
+      - lab
+    body: '{"openapi": "3.0.3", "info": {"title": "Lab API", "version": "1"}, "servers": [{"url": "https://lab.example.invalid"}], "paths": {"/health": {"get": {}}}}'
+  https://lab.example.invalid:443/robots.txt:
+    status: 200
+    headers:
+      content-type:
+      - text/plain
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      content-security-policy:
+      - default-src 'none'
+      x-content-type-options:
+      - nosniff
+      server:
+      - lab
+    body: |
+      User-agent: *
+      Disallow:

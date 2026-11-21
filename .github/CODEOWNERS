@@ -1,0 +1,7 @@
+# Every change needs the owner's review.
+*                                @MDPorsch
+/.github/                        @MDPorsch
+/src/scopedagent/policy/         @MDPorsch
+/src/scopedagent/pipeline/redact.py @MDPorsch
+/src/scopedagent/storage/   @MDPorsch
+/src/scopedagent/ai/        @MDPorsch

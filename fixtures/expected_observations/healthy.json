@@ -1,0 +1,207 @@
+[
+  {
+    "adapter": "offline_dns",
+    "observation_type": "dns_metadata",
+    "target": {
+      "host": "lab.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "dns lab.example.invalid",
+    "error_status": "ok",
+    "payload": {
+      "host": "lab.example.invalid",
+      "status": "ok",
+      "records": {
+        "A": [
+          "192.0.2.10"
+        ],
+        "AAAA": [
+          "2001:db8::10"
+        ]
+      }
+    }
+  },
+  {
+    "adapter": "offline_tls",
+    "observation_type": "tls_metadata",
+    "target": {
+      "host": "lab.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "tls lab.example.invalid:443",
+    "error_status": "ok",
+    "payload": {
+      "host": "lab.example.invalid",
+      "port": 443,
+      "status": "ok",
+      "tls_version": "TLSv1.3",
+      "certificate": {
+        "subject_cn": "lab.example.invalid",
+        "issuer_cn": "Example Lab CA",
+        "san_dns": [
+          "lab.example.invalid"
+        ],
+        "not_before": "2026-06-01T00:00:00Z",
+        "not_after": "2027-06-01T00:00:00Z",
+        "signature_algorithm": "ecdsa-with-SHA256",
+        "public_key": {
+          "type": "ec",
+          "bits": 256
+        },
+        "self_signed": false,
+        "sha256_fingerprint": "f1ff2f8414b817f42594189efaf55017f2630cb4002194604b59e5ce41d0553b"
+      }
+    }
+  },
+  {
+    "adapter": "offline_http",
+    "observation_type": "http_metadata",
+    "target": {
+      "host": "lab.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "GET https://lab.example.invalid:443/.well-known/security.txt",
+    "error_status": "ok",
+    "payload": {
+      "host": "lab.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/.well-known/security.txt",
+      "method": "GET",
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "text/plain; charset=utf-8"
+        ],
+        "strict-transport-security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "content-security-policy": [
+          "default-src 'none'"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "server": [
+          "lab"
+        ]
+      },
+      "redirect_location": null,
+      "body": {
+        "size_bytes": 99,
+        "truncated": false,
+        "content_type": "text/plain; charset=utf-8",
+        "artifact_sha256": "9a51775621d3d3cd5f5c2f805b48412adb7166a461a72f3ec080880ec518aa8b",
+        "parsed": {
+          "contact": [
+            "mailto:security@lab.example.invalid"
+          ],
+          "expires": "2027-06-01T00:00:00Z"
+        }
+      }
+    }
+  },
+  {
+    "adapter": "offline_http",
+    "observation_type": "http_metadata",
+    "target": {
+      "host": "lab.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "GET https://lab.example.invalid:443/openapi.json",
+    "error_status": "ok",
+    "payload": {
+      "host": "lab.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/openapi.json",
+      "method": "GET",
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ],
+        "strict-transport-security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "content-security-policy": [
+          "default-src 'none'"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "server": [
+          "lab"
+        ]
+      },
+      "redirect_location": null,
+      "body": {
+        "size_bytes": 154,
+        "truncated": false,
+        "content_type": "application/json",
+        "artifact_sha256": "24eaea1033fdd7a35d1f44efcfe3c446e317336d5c114c9a330936e1da7e49fc",
+        "parsed": {
+          "openapi": "3.0.3",
+          "path_count": 1,
+          "server_urls": [
+            "https://lab.example.invalid"
+          ],
+          "security_schemes": []
+        }
+      }
+    }
+  },
+  {
+    "adapter": "offline_http",
+    "observation_type": "http_metadata",
+    "target": {
+      "host": "lab.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "GET https://lab.example.invalid:443/robots.txt",
+    "error_status": "ok",
+    "payload": {
+      "host": "lab.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/robots.txt",
+      "method": "GET",
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "text/plain"
+        ],
+        "strict-transport-security": [
+          "max-age=31536000; includeSubDomains"
+        ],
+        "content-security-policy": [
+          "default-src 'none'"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "server": [
+          "lab"
+        ]
+      },
+      "redirect_location": null,
+      "body": {
+        "size_bytes": 24,
+        "truncated": false,
+        "content_type": "text/plain",
+        "artifact_sha256": "e5c4b84484ee4216e9373be99380320c25dd94805f99f0a805846f087636553f",
+        "parsed": {
+          "user_agents": [
+            "*"
+          ],
+          "disallow": []
+        }
+      }
+    }
+  }
+]

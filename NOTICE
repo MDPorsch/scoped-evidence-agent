@@ -1,0 +1,8 @@
+scoped-evidence-agent
+Copyright 2026 Mohammed Orunsolu
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+scoped-evidence-agent is a reconnaissance-evidence tool. Use it only against systems you own or are
+explicitly authorized to assess; a scope file is a restriction, not proof of authorization. It is
+provided "AS IS", without warranty of any kind.
