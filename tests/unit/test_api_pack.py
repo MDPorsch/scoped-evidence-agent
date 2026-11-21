@@ -45,7 +45,7 @@ def test_a_pack_without_an_api_section_has_an_empty_one() -> None:
     [
         f"anonymous|GET|{URL}",
         f"tenant-a-user|GET|{URL}",
-        f"u1|HEAD|http://api.example.invalid:8080/health",
+        "u1|HEAD|http://api.example.invalid:8080/health",
         f"anonymous|OPTIONS|{URL}|{ORIGIN}",
         f"anonymous|OPTIONS|{URL}|{ORIGIN}:8443",
         "anonymous|GET|https://api.example.invalid:443/",
