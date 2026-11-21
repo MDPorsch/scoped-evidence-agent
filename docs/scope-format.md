@@ -21,6 +21,14 @@ max_response_bytes: 100000                # 1024 to 1000000
 follow_redirects: false                   # must be false
 ```
 
+## Required and defaulted fields
+
+Required: `engagement_id`, `owner_approval_ref`, `expires_at`, `allowed_targets` (each with `host`, `schemes`,
+`ports`), `allowed_operations`, `max_requests`. Defaulted, and the default is the safe value: `mode: offline`,
+`max_parallelism: 2`, `per_request_timeout_seconds: 5`, `max_response_bytes: 100000`, `follow_redirects: false`,
+and per target `allowed_paths: []`. The hash is computed **after** defaults are filled in, so writing a default
+explicitly does not change it.
+
 ## Loader rules
 
 | Rule | Why |
@@ -52,9 +60,10 @@ after the same rules; there is no prefix match.
 ## Cross-field rules
 
 * An entry with more than one scheme **and** more than one port is refused (D-E22): write one entry per pair.
-* `tls_metadata` requires `https` in that target's `schemes`.
-* `http_metadata` requires at least one `allowed_paths` entry on the target.
-* `dns_metadata` needs only the host.
+* A planned operation must be possible for some target: `tls_metadata` needs at least one entry with `https`,
+  and `http_metadata` needs at least one entry with `allowed_paths` (`SCOPE-009`). An entry that cannot use an
+  allowed operation (an `http`-only entry and TLS, an entry with no paths and HTTP) simply plans none of it.
+* `dns_metadata` plans **one lookup per distinct host**, at that host's first entry (D-E23).
 * `max_requests` may be smaller than the number of operations the scope could issue (one DNS lookup and one TLS
   handshake per target port, one HTTP request per scheme, port and path). That is allowed: the run then ends with
   the remaining operations recorded as `budget_exhausted`, the collection is incomplete and the exit code is `2`.
