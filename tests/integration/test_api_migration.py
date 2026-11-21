@@ -305,6 +305,33 @@ def test_a_failure_after_the_first_table_is_rebuilt_undoes_it(
     )
 
 
+def test_a_failed_rebuild_is_rolled_back_on_its_own_connection_not_just_when_the_connection_is_closed(
+    tmp_path: Path, source_rows: dict[str, list[tuple[Any, ...]]]
+) -> None:
+    """The explicit ROLLBACK and the connection's closing both undo a half-done rebuild; this checks the first, on the same connection."""
+    data_dir = old_database(tmp_path, source_rows)
+    module = load_migration()
+
+    def failing() -> None:
+        raise RuntimeError("the second rebuild failed")
+
+    module._create_observations = failing
+    engine = create_engine(f"sqlite:///{data_dir.db_path}")
+    try:
+        with engine.connect() as connection, Operations.context(MigrationContext.configure(connection)):
+            with pytest.raises(RuntimeError, match="second rebuild failed"):
+                module.upgrade()
+            names = {r[0] for r in connection.exec_driver_sql("SELECT name FROM sqlite_master").all()}
+            assert "targets__new" not in names and "observations__new" not in names and "targets" in names
+            assert (
+                "kind IN ('web', 'ai')"
+                in connection.exec_driver_sql("SELECT sql FROM sqlite_master WHERE name = 'targets'").scalar_one()
+            )
+            assert not connection.connection.in_transaction  # nothing is left open for the next statement to join
+    finally:
+        engine.dispose()
+
+
 def test_a_copy_that_loses_rows_is_stopped_before_the_old_table_is_dropped(
     tmp_path: Path, source_rows: dict[str, list[tuple[Any, ...]]]
 ) -> None:
