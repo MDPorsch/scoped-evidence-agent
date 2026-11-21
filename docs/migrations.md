@@ -9,6 +9,9 @@ database at a revision this version does not know is refused (`STORE-002`) with 
 * Revision `0002` (M3, D-E62) adds `runs.planned_operations` (NULL for a run made before it), the immutable `finding_details`
   table and the append-only `finding_reviews` table, each with a no-update and a no-delete trigger. A database at `0001` is
   refused with the command to run, and `db upgrade` brings it forward and keeps its data (tested).
+* Revision `0003` (M4, D-E69) adds the append-only `model_calls` and `finding_wordings` tables, each with a no-update and a no-delete
+  trigger. It changes no existing table, so a database at `0002` keeps its data (tested). A database at `0002` is refused with the
+  command to run until `db upgrade`.
 * Triggers: `audit_events_no_update` and `audit_events_no_delete` (the audit trail is append-only) and
   `observations_target_in_engagement` (an observation must belong to a target of the run's own engagement).
 * **Forward only.** There is no downgrade: it raises. To go back, restore the database file from a backup made before the upgrade.

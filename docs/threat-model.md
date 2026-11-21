@@ -21,7 +21,7 @@ Status: M0, before any collection code. Every threat names the control, where it
 | **Reviewer** | Trusted, fallible | Review drafts, approve exports. A different role in the workflow, the same OS user in practice (D-E07). |
 | **Target** (and everything it returns) | **Hostile** | Returns headers, bodies, certificates, DNS answers, redirects. Controls all of that text. |
 | **Fixture author** | Semi-trusted | Writes a fixture pack; a pack from elsewhere is untrusted input like a target. |
-| **LLM** (optional, M4) | **Not an authority** | Produces text. Cannot choose targets, tools, severity, truth or export. |
+| **LLM** (optional, M4, off by default) | **Not an authority** | Rewords a draft's rule sentences; its text is checked by code and shown under the rule's, labelled. Cannot choose targets, tools, severity, truth or export. |
 | **Local attacker** with the operator's file access | Out of scope | See LIMITATIONS SE-03 and SE-04. |
 
 ## 3. Trust boundaries
@@ -97,7 +97,7 @@ decides (SE-06).
 | Vector | Control | Tests |
 |---|---|---|
 | Cookies, API keys, authorization headers in responses | redacted before persistence and before any model call | AE-07 |
-| Raw bodies uploaded to a model | `send_raw_body=false` by default; redact, truncate, then send | AE-07 |
+| Raw bodies uploaded to a model | no body, header, observation or artifact is ever sent: only a draft's rule sentences (`docs/ai-adapter.md`) | AE-07, MD-06 |
 | Evidence readable by other local users | `0600` files, `0700` directories, database `0600` | M1 tests |
 | Evidence kept forever | 30-day default retention, purge with receipt (D-E13) | M1 tests |
 | A hash that lets someone guess a low-entropy value | keyed HMAC fingerprints only (D-E14) | M2 tests |
@@ -118,6 +118,22 @@ decides (SE-06).
 | Production systems tested by mistake | `environment` is required; production needs a reference and only production may have one | `unit/test_scope_ai_targets.py` |
 
 *Residual:* the probe texts do not exist yet (M2) and nothing has been run against a real AI system.
+
+### T6. The optional model (M4; `docs/ai-adapter.md`)
+
+| Vector | Control | Tests |
+|---|---|---|
+| The key sent somewhere else (a changed base URL, a proxy variable, a bearer token in the environment) | the endpoint is a constant, the key is passed explicitly so the SDK reads no credential variable, the key is accepted nowhere in a reply | MD-04, MD-07 |
+| The key written to a file, a log, a report, an error or the database | it is read from the environment at the moment of a call; the configuration holds only the variable's *name*; errors are reduced to a class name | MD-03, MD-04 |
+| The model turned on by accident or by someone else | off by default, a typed word to enable, a private closed-schema file, a bad file is refused rather than read as enabled | MD-01 to MD-03 |
+| A model reached from `run`, a report or a review | only two commands build an adapter, checked in the source | MD-05 |
+| Engagement data leaving the machine | rule sentences only, hosts masked by default, nothing a target said | MD-06 |
+| A model that adds a verdict, a fact, a number, a link or markup | per-item checks by code; a failure is dropped and the rule's text stands | MD-08 |
+| A model that returns a hostile or malformed reply | exact shape or invalid as a whole; sizes capped; ids compared | AE-08 |
+| Unbounded spend | per-run limits on calls and tokens, refused before the call | MD-09 |
+| A model's wording read as the finding | stored beside the rule's text, labelled as not verified, never in place of it; the model cannot write or review | MD-10, MD-11 |
+
+*Residual:* a wording can pass every check and still shift the meaning (SE-32); sentences go to a third party once enabled (SE-33).
 
 ## 5. Other threats
 

@@ -38,6 +38,8 @@ class ErrorCode(StrEnum):
     STATE_002 = "STATE-002"  # the object changed since it was read
     STATE_003 = "STATE-003"  # this actor may not do that
     STATE_004 = "STATE-004"  # a review needs a reviewer, a reason and evidence
+    AI_001 = "AI-001"  # the AI configuration is unreadable, unsafe or not valid
+    AI_002 = "AI-002"  # the model is off, or its key is not set
     REPORT_001 = "REPORT-001"  # a report cannot be written where it was asked to go
     BUDGET_001 = "BUDGET-001"  # the request budget is spent
     AUDIT_001 = "AUDIT-001"  # the audit chain is broken
@@ -80,6 +82,10 @@ class PackError(ScopedAgentError):
 
 
 class ReportError(ScopedAgentError):
+    exit_code = 1
+
+
+class AiError(ScopedAgentError):
     exit_code = 1
 
 

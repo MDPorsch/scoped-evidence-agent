@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from scopedagent.errors import ErrorCode, StoreError
 
-HEAD_REVISION = "0002"
+HEAD_REVISION = "0003"
 _MIGRATIONS = Path(__file__).parent / "migrations"
 
 

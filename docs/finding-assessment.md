@@ -55,9 +55,11 @@ asks, including a configuration option.
 A reviewed **rule catalogue** in the repository (data plus small functions), one rule per class, each with its tests and its
 mutation check. A rule reads observations and returns the fields above. Nothing else writes them.
 
-The optional model (M4) may **rephrase** a rule's sentences for readability and may not add a class, a condition, a step, a severity or
-an evidence id. Its output is validated against the rule's output; anything the rule did not say is dropped, and a draft that fails
-validation falls back to the rule's own text. The model is not told the target's replies (D-E33).
+The optional model (M4) may **reword** a rule's sentences for readability and may not add a class, a condition, a step, a severity or
+an evidence id. Its wording is a second text stored beside the rule's, shown under it and labelled as not verified; each sentence is
+checked by code (characters, length, numbers, dates, names, hosts and verdict words must match what the rule said), and one that fails
+is dropped, so the rule's own text is what shows. The model is not told the target's replies (D-E33). The contract is
+`docs/ai-adapter.md`.
 
 ## Validation steps in detail (within D-E58 and D-E59)
 

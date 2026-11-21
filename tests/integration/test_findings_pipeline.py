@@ -441,7 +441,7 @@ def test_a_database_made_by_the_previous_revision_upgrades_and_keeps_its_data(tm
             "VALUES ('r1','e1','alice','offline','DRAFTED',12,5,1,'2026-11-20T00:00:00.000000Z');"
             "INSERT INTO finding_drafts VALUES ('f1','r1','An old title','tls-misconfiguration',0.5,'DRAFT',NULL,1,'2026-11-20T00:00:00.000000Z');"
         )
-    assert upgrade_database(data_dir) == "0002"
+    assert upgrade_database(data_dir) == "0003"
     db = open_database(data_dir)
     try:
         with db.begin() as session:
@@ -461,10 +461,45 @@ def test_a_database_made_by_the_previous_revision_upgrades_and_keeps_its_data(tm
         db.close()
 
 
-def test_the_head_revision_is_0002_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
+def test_a_database_at_revision_0002_gains_the_model_tables_and_keeps_its_data(tmp_path: Path) -> None:
+    data_dir = DataDir(tmp_path / "m3")
+    data_dir.root.mkdir(mode=0o700)
+    data_dir.db_path.touch(mode=0o600)
+    command.upgrade(_alembic_config(data_dir.db_path), "0002")
+    with raw_connection(data_dir.db_path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript(
+            "INSERT INTO engagements VALUES ('e1','lab','local-lab-consent','"
+            + "a" * 64
+            + "','{}','2026-12-31T00:00:00.000000Z','2026-11-20T00:00:00.000000Z','active');"
+            "INSERT INTO runs (id, engagement_id, created_by, mode, state, total_budget, budget_spent, attempt, created_at) "
+            "VALUES ('r1','e1','alice','offline','DRAFTED',12,5,1,'2026-11-20T00:00:00.000000Z');"
+        )
+        before = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert {"model_calls", "finding_wordings"}.isdisjoint(before)
+    assert upgrade_database(data_dir) == "0003"
+    db = open_database(data_dir)
+    try:
+        with db.begin() as session:
+            assert session.execute(text("SELECT state FROM runs WHERE id = 'r1'")).scalar() == "DRAFTED"
+            tables = set(session.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'")).scalars())
+            triggers = set(session.execute(text("SELECT name FROM sqlite_master WHERE type = 'trigger'")).scalars())
+        assert {"model_calls", "finding_wordings"} <= tables
+        assert {
+            "model_calls_no_update",
+            "model_calls_no_delete",
+            "finding_wordings_no_update",
+            "finding_wordings_no_delete",
+        } <= triggers
+        assert {"finding_details_no_update", "audit_events_no_delete"} <= triggers  # the older ones survive
+    finally:
+        db.close()
+
+
+def test_the_head_revision_is_0003_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
     from scopedagent.storage.database import HEAD_REVISION  # noqa: PLC0415
 
-    assert HEAD_REVISION == "0002"
+    assert HEAD_REVISION == "0003"
     data_dir = DataDir(tmp_path / "data")
     upgrade_database(data_dir)
     with raw_connection(data_dir.db_path) as connection:

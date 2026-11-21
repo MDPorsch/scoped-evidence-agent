@@ -52,7 +52,7 @@ def test_importing_the_package_loads_no_network_client_library() -> None:
         """
         import sys
         import scopedagent, scopedagent.cli, scopedagent.policy.scope, scopedagent.storage.repositories, scopedagent.storage.artifacts
-        clients = {"httpx", "requests", "urllib3", "aiohttp", "http.client", "urllib.request", "dns"}
+        clients = {"httpx", "requests", "urllib3", "aiohttp", "http.client", "urllib.request", "dns", "anthropic"}
         print(",".join(sorted(m for m in clients if m in sys.modules)))
         """
     )

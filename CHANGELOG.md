@@ -4,6 +4,19 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
+### Added (M4: the optional model adapter, off by default)
+- `ai enable|status|disable|test` and `findings reword RUN [--finding ID]` (`docs/ai-adapter.md`). The model is Claude through the official
+  `anthropic` SDK (an optional extra: `pip install "scoped-evidence-agent[ai]"`) or an offline stand-in that makes no connection. It may
+  only **reword** a draft's rule sentences; the rule's text stays authoritative and is shown first, and a wording is labelled as not
+  verified in `findings show` and in reports.
+- Enabling is one command that shows what is sent and asks you to type `enable`; the configuration is a private `ai.json` with no secret in
+  it; the API key comes from an environment variable and is never stored, printed or logged. `run` never calls a model.
+- Every answer is checked item by item by code: exact reply shape, plain characters only, length, every number, date, version, header, path
+  and host of the original kept, no verdict or escalation word added, no key. A failure keeps the rule's text and is recorded.
+- A budget per run (calls, output tokens, total tokens), host names masked by default, an append-only record of every call
+  (`model_calls`) and wording (`finding_wordings`), and an audit event per call. Migration `0003`.
+- Decisions D-E66 to D-E69.
+
 ### Added (M3: drafts, review and reports)
 - `run` now applies a reviewed catalogue of twelve deterministic rules to what it collected and stores drafts (`docs/correlator.md`):
   TLS weaknesses, missing security headers, version banners, sensitive-looking `robots.txt` paths, insecure or external redirects, exposed
