@@ -592,3 +592,18 @@ def test_a_metadata_only_target_plans_one_read_per_path_in_file_order() -> None:
         ("ai_metadata", "/v1/info", None),
         ("ai_metadata", "/health", None),
     ]
+
+
+@pytest.mark.parametrize("field", ["max_model_requests", "max_input_tokens", "max_output_tokens", "max_total_tokens"])
+def test_a_limit_of_zero_is_refused_even_for_a_target_with_no_probes(field: str) -> None:
+    # With no probes the consumption check passes for any value, so only the field's own range can refuse zero.
+    data = ai_scope_dict()
+    t = target(data)
+    t.update(operations=["ai_metadata"])
+    for name in ("probe_path", "probe_sets", "test_categories"):
+        del t[name]
+    data["allowed_operations"] = ["ai_metadata"]
+    t["limits"] = {"max_model_requests": 1, "max_input_tokens": 1, "max_output_tokens": 1, "max_total_tokens": 1}
+    accepted(data)
+    t["limits"][field] = 0
+    refused(data, ErrorCode.SCOPE_007)

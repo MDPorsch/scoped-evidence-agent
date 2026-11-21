@@ -43,6 +43,25 @@ generated inputs, `negative/` the "this must be impossible" checks.
 | X-07 | Every golden observation conforms to the payload schemas and round-trips exactly | `unit/test_observation_schemas.py` | **Covered** |
 | X-08 | The migration and the models describe the same schema, including CHECK constraints | `integration/test_database.py` | **Covered** |
 
+## AI-system scopes (D-E28 to D-E36)
+
+| ID | Invariant | Covered by | Status |
+|---|---|---|---|
+| AI-01 | A scope naming the provider layer is refused | `unit/test_scope_ai_targets.py` | **Covered** |
+| AI-02 | A rule that is missing, not `forbidden`, or `allowed` is refused (`allowed` as "not available in this version") | same | **Covered** |
+| AI-03 | A probe set that is not in the reviewed library is refused; the library cannot change at run time | same, `unit/test_probes.py` | **Covered** |
+| AI-04 | A probe set whose category the target does not authorize is refused | `unit/test_scope_ai_targets.py` | **Covered** |
+| AI-05 | Planned probes that exceed the request cap, or whose worst-case tokens exceed the total, are refused (both boundaries exact) | same | **Covered** |
+| AI-06 | Production needs a reference, and only production may have one | same | **Covered** |
+| AI-07 | A reply that contains injection text is recorded as data and never leaves as an instruction | `unit/test_ai_observation_schemas.py` (the fixture and its golden) | **Partial**: the fixture and schema. The collector is M2 and the model boundary M4 |
+| AI-08 | Whether a canary appeared is a recorded fact, recomputed independently from the pack | `unit/test_ai_observation_schemas.py` | **Partial**: goldens are consistent; the adapter that produces them is M2 |
+| AI-09 | Markup, links, code blocks and URLs in a reply are flagged as structure, never as a verdict, and no verdict field exists | same | **Partial**: schema and fixture; the adapter is M2 |
+| AI-10 | A reply that claims a tool was used is text, not an action | fixture only | **Planned (M2, M4)** |
+| AI-11 | Two AI targets with the same id or endpoint are refused, not merged | `unit/test_scope_ai_targets.py` | **Covered** |
+| AI-12 | Secrets in a reply are redacted before storage | none | **Planned (M2)** |
+| AI-13 | An AI observation cannot be filed under a web target and a web observation cannot be filed under an AI target, in the application and in the database | `integration/test_ai_targets_storage.py` | **Covered** |
+| AI-14 | A scope without AI targets keeps its hash | `unit/test_scope_schema.py`, `unit/test_scope_ai_targets.py` | **Covered** |
+
 ## What this table does not say
 
 A *covered* case has tests; it is not a proof. Mutation testing (`tools/mutation.py`) checks that the tests notice a deliberate

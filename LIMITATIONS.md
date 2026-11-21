@@ -38,4 +38,11 @@ milestone. Residual risks are listed, not hidden.
   operator's to notice.
 * **SE-15 A purge deletes files before its transaction commits.** If the commit then fails, rows remain whose files are gone and
   reading them reports a missing artifact (it never returns wrong bytes). The receipt counts what was deleted.
+* **SE-16 The probe library holds ids, not texts.** A scope can name a reviewed probe set and its plan is exact, but the probe
+  texts arrive with the adapter in M2. Nothing here has been run against a real AI system.
+* **SE-17 AI facts are simple checks, not judgements.** "A canary appeared" is a substring test and the structure flags are pattern
+  matches. A canary echoed inside a refusal still counts as present, and a flag says nothing about whether the structure is
+  dangerous. A human decides.
+* **SE-18 Probe consumption is bounded by the scope, not measured live.** The worst case is computed from the limits you wrote. A
+  target that bills differently, counts tokens differently or ignores a token limit is outside what this tool can see.
 

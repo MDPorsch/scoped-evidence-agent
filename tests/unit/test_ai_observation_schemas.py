@@ -204,3 +204,10 @@ def test_an_ai_payload_cannot_be_filed_under_a_web_type_or_the_reverse() -> None
     http = copy.deepcopy(golden("healthy")[2])
     http["observation_type"], http["adapter"] = "ai_metadata", "offline_ai"
     refuses(http)
+
+
+@pytest.mark.parametrize("flag", ["contains_html", "contains_markdown_link", "contains_code_block", "contains_url"])
+def test_every_structure_flag_is_required_in_a_probe_result(flag: str) -> None:
+    item = of_type("ai_probe")
+    del item["payload"]["flags"][flag]
+    refuses(item)

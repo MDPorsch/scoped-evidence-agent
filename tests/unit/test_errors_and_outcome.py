@@ -138,3 +138,21 @@ def test_exit_zero_requires_a_complete_collection_with_no_failure_and_no_drafts(
     assert coverage.complete == all_ok
     assert (code is ExitCode.OK) == (all_ok and not failure and drafts == 0)
     assert (code is ExitCode.REVIEW) == (all_ok and not failure and drafts > 0)
+
+
+@pytest.mark.parametrize(
+    "extra", [ErrorStatus.TIMEOUT, ErrorStatus.DNS_FAILURE, ErrorStatus.ADAPTER_ERROR, ErrorStatus.OK]
+)
+def test_more_results_than_planned_are_never_complete_even_when_the_planned_ones_all_succeeded(
+    extra: ErrorStatus,
+) -> None:
+    # found by mutation: a Hypothesis property only caught this by luck. Five planned, five ok, and one more result.
+    coverage = coverage_from(5, [ErrorStatus.OK] * 5 + [extra])
+    assert not coverage.complete
+    assert exit_code_for(coverage, drafts_needing_review=0) is ExitCode.INCOMPLETE
+
+
+def test_an_error_alongside_a_full_set_of_successes_makes_the_collection_incomplete() -> None:
+    coverage = coverage_from(3, [ErrorStatus.OK, ErrorStatus.OK, ErrorStatus.OK, ErrorStatus.TIMEOUT])
+    assert coverage.ok == 3 and coverage.planned == 3 and coverage.by_status == {ErrorStatus.TIMEOUT: 1}
+    assert not coverage.complete

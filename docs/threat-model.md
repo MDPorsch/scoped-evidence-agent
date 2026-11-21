@@ -106,6 +106,19 @@ decides (SE-06).
 
 *Residual:* redaction is best effort (SE-05); a person must read anything before it leaves the machine.
 
+### T5. Testing AI systems (approved design: `docs/ai-targets.md`)
+
+| Vector | Control | Tests |
+|---|---|---|
+| Testing a model provider's own service | `layer: application` is the only accepted value | `unit/test_scope_ai_targets.py` |
+| A probe that makes an agent act, writes memory, or carries personal data | `tool_invocation`, `persistent_state_writes`, `personal_data_in_probes` are required and only `forbidden` is accepted | same |
+| Probes written at run time by an operator, a target or a model | a scope names probe sets from a reviewed library; it cannot define one | `unit/test_probes.py`, `unit/test_scope_ai_targets.py` |
+| Unbounded cost to the client | request and token limits are required and the worst case must fit them | same |
+| A model's reply read as instructions by our own assistant model (nested injection) | the reply is stored as a redacted artifact and recorded as facts; `target_output_to_assistant_model` is `forbidden` | fixtures; adapters in M2, model in M4 |
+| Production systems tested by mistake | `environment` is required; production needs a reference and only production may have one | `unit/test_scope_ai_targets.py` |
+
+*Residual:* the probe texts do not exist yet (M2) and nothing has been run against a real AI system.
+
 ## 5. Other threats
 
 | Threat | Control | Tests |

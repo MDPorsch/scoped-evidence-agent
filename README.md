@@ -23,8 +23,9 @@ those targets and keeps it in a form you can defend afterwards:
 3. **Redacts and stores it safely.** Cookies, keys and tokens are replaced before anything is written; every artifact is named by its
    hash; the files are private; evidence expires after 30 days unless you say otherwise.
 4. **Logs everything tamper-evidently.** Every step, and every refused attempt, is a hash-chained audit entry.
-5. **Drafts findings, and stops.** It can say "this certificate expired" or "this server announces its version", linked to the
-   exact observations behind it. A draft is never a finding: only a human reviewer can validate one, and an AI model (optional,
+5. **Drafts findings, and stops.** It names the kind of flaw, the evidence behind it, the conditions under which it matters, whether
+   the evidence supports a way in (an assessment, never a confirmation) and the read-only steps a person can run to check it
+   (`docs/finding-assessment.md`). It never writes an exploit. A draft is never a finding: only a human reviewer can validate one, and an AI model (optional,
    off by default) has no way to choose targets, run tools or mark anything verified.
 
 It is for the *evidence* part of an assessment: what was observed, how, when, and what is still unverified. It is not a scanner,

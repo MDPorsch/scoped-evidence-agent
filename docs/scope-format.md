@@ -39,6 +39,13 @@ explicitly does not change it.
 | Unknown keys are an error at every level | a typo must not silently drop a restriction |
 | Text fields are printable ASCII; control and bidi characters refused | reports and logs stay readable and injection-free |
 
+## AI-system targets
+
+A scope may also list `ai_targets` (`docs/ai-targets.md`). `allowed_targets` stays required but may be `[]` when at least one AI
+target is listed; a scope with no target of either kind is refused (`SCOPE-007`). An AI target grants no dns, tls or http
+operation, so `dns_metadata` needs a web target. The AI targets join the hash only when present: a scope without them hashes
+exactly as before.
+
 ## Host canonicalization (D-E04)
 
 Input is accepted only if, after the steps below, it is a valid name.
@@ -93,3 +100,4 @@ A refusal carries a stable code and a path to the field, never the offending val
 | `SCOPE-008` | `follow_redirects` is not `false` |
 | `SCOPE-009` | cross-field rule broken (operation needs something the target lacks) |
 | `SCOPE-010` | the scope file changed after it was validated |
+| `SCOPE-011` | an AI-system rule is broken: the layer, a rule that is not `forbidden`, a production reference, or a probe set that is not in the library (`docs/ai-targets.md`) |
