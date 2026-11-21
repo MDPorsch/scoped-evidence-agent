@@ -990,7 +990,12 @@ def live_run(
     ctx: typer.Context,
     scope: Annotated[Path, typer.Option("--scope", help="A scope with mode live.")],
     approval_id: Annotated[str, typer.Option("--approval-id", help="From `approvals grant` for this exact scope.")],
-    image: Annotated[str, typer.Option("--image", help="The collector image, pinned by digest: name@sha256:...")],
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image", help="The collector image, pinned: name@sha256:... or the sha256:... ID of the image you built"
+        ),
+    ],
     acknowledge: Annotated[
         bool, typer.Option("--ack-authorization", help="Required on every live run: you are saying yes, now.")
     ] = False,

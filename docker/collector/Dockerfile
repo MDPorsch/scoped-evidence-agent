@@ -2,7 +2,10 @@
 #
 #   docker build -f docker/collector/Dockerfile -t scopedagent-collector:local .
 #   docker image inspect --format '{{.Id}}' scopedagent-collector:local      # sha256:...
-#   scoped-agent live run --image scopedagent-collector@sha256:... ...        # a tag is refused
+#   scoped-agent live run --image sha256:... ...                              # the ID; a tag is refused
+#
+# A locally built image has no repository digest (that exists only after a push), so it is named by its ID, which is a hash of its
+# content. `name@sha256:<id>` would make Docker try to pull `name` from a registry. An image you pushed can be named name@sha256:<digest>.
 #
 # The base image is a moving tag, so the image you build is the thing you review and pin, not this file.
 FROM python:3.13-slim

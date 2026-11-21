@@ -23,17 +23,21 @@ from pydantic import ValidationError
 from scopedagent.errors import ErrorCode, LiveFailed, LiveRefused
 from scopedagent.live.protocol import MAX_PROOF_BYTES, AllowedPair, Job, Proof
 
-IMAGE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}")
+IMAGE = re.compile(r"(?:[a-z0-9][a-z0-9._/:-]{0,200}@)?sha256:[0-9a-f]{64}")
 WALL_CLOCK_SECONDS = 600
 PROOF_TIMEOUT_SECONDS = 60
 
 
 def validate_image(reference: str) -> str:
-    """An image reference pinned by digest (`name@sha256:...`). A tag is refused: it can move."""
+    """An image pinned by digest: `name@sha256:...`, or the bare `sha256:...` ID of an image built here. A tag is refused: it can move.
+
+    A repository digest exists only once an image has been pushed, so a locally built image can only be named by its ID (a hash of
+    its content, so as fixed as a digest). `docker run name@sha256:<id>` would instead try to pull `name` from a registry.
+    """
     if not IMAGE.fullmatch(reference):
         raise LiveRefused(
             ErrorCode.LIVE_001,
-            "the image must be pinned by digest, like registry/name@sha256:<64 hex digits>: a tag can change",
+            "the image must be pinned by digest, like registry/name@sha256:<64 hex digits> or the sha256:<64 hex digits> ID of an image you built: a tag can change",
         )
     return reference
 

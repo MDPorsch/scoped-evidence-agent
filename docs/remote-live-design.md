@@ -104,7 +104,8 @@ The allow-list handed to the container is the set of pinned `IP:port` pairs, so 
 
 ### 4.4 Real egress isolation (the spec's requirement)
 
-The collector runs in a container started by the controller from an image **pinned by digest**, with: a read-only root
+The collector runs in a container started by the controller from an image **pinned by digest** (`name@sha256:...`, or, for an image
+you built on this machine, its bare `sha256:...` ID: see D-E81), with: a read-only root
 filesystem, a tmpfs scratch area, no mounts except one write-only output directory, `no-new-privileges`, all capabilities dropped
 after setup, a non-root user, a CPU, memory and process-count limit, and a wall-clock limit enforced from outside.
 
@@ -253,3 +254,4 @@ A run whose proof fails never exists.
 | D-E78 | **The controller proves before it sends:** the allow-list goes in first, the proof comes out, and the job (with its credentials' *names*) is sent only after the proof is verified. There is no flag that skips it. |
 | D-E79 | **Certificates are parsed with `cryptography`, installed in the container image only** (the `live` extra); the controller and the offline tool do not need it. |
 | D-E80 | **Not called safe.** The real container has not been exercised here (no container runtime was running); `tests/container` and a CI job (`live isolation (real container)`) exist to do it on Linux, and the report of a live run states the proof it got. The first real exercise should be against a lab target you own, before anything else. |
+| D-E81 | **A locally built image is pinned by its ID.** The first real CI build showed that the documented form `name@sha256:<image id>` makes Docker try to *pull* `name` from a registry: a repository digest exists only after a push. `--image` therefore also accepts the bare `sha256:<64 hex>` ID of an image built here, which is a hash of the image's content and so as fixed as a digest. A tag is still refused. (Found by the first real run of the container job; **pending your approval**, like D-E74 to D-E80.) |

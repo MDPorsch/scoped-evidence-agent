@@ -294,6 +294,15 @@ def test_a_credential_is_passed_by_name_so_its_value_is_in_no_argument() -> None
         f"collector@sha256:{'a' * 65}",
         f"collector@sha256:{'A' * 64}",
         f"collector@sha1:{'a' * 40}",
+        f"sha256:{'a' * 63}",
+        f"sha256:{'a' * 65}",
+        f"sha256:{'A' * 64}",
+        f"sha256:{'g' * 64}",
+        f"-sha256:{'a' * 64}",
+        f"sha256:{'a' * 64} --privileged",
+        f"sha256:{'a' * 64}\n",
+        f" sha256:{'a' * 64}",
+        "sha256",
         f"Collector@{DIGEST}",
         f"col lector@{DIGEST}",
         f"-v/:/x@{DIGEST}",
@@ -310,10 +319,16 @@ def test_an_image_that_is_not_pinned_by_digest_is_refused(image: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "image", [IMAGE, f"a@{DIGEST}", f"localhost:5000/team/collector-1.0@{DIGEST}", f"ghcr.io/o/r@{DIGEST}"]
+    "image", [IMAGE, f"a@{DIGEST}", f"localhost:5000/team/collector-1.0@{DIGEST}", f"ghcr.io/o/r@{DIGEST}", DIGEST]
 )
 def test_a_digest_pinned_image_is_accepted(image: str) -> None:
     assert validate_image(image) == image
+
+
+def test_a_bare_image_id_is_passed_to_docker_as_it_is_and_never_as_a_name_to_pull() -> None:
+    command = docker_command(DIGEST, Path("/o"), "n", [])
+    assert command.count(DIGEST) == 1 and "@" not in DIGEST
+    assert command.index(DIGEST) > command.index("--entrypoint")  # an operand of `docker run`, after every option
 
 
 # -------------------------------------------------------------------------------- the runtime and session ----

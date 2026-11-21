@@ -27,8 +27,9 @@ def image() -> str:
         cwd=ROOT, capture_output=True, text=True, check=False, timeout=900,
     )  # fmt: skip
     assert built.returncode == 0, built.stderr[-2000:]
-    digest = built.stdout.strip().splitlines()[-1]  # sha256:...
-    return f"scopedagent-collector@{digest}"
+    return built.stdout.strip().splitlines()[
+        -1
+    ]  # the image ID, sha256:...: a locally built image has no repository digest
 
 
 def test_the_container_proves_its_isolation_with_every_check_passing(image: str, tmp_path: Path) -> None:

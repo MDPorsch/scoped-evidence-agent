@@ -1692,7 +1692,9 @@ M.update({
     "live_container_without_a_memory_limit": [(LRT, '"--memory", "256m", "--memory-swap", "256m", ', "")],
     "live_container_has_system_dns": [(LRT, '"--dns", "127.0.0.1",', "")],
     "live_container_credential_by_value": [(LRT, '        command += ["-e", env]  # by name: Docker reads the value from this process, so it is not in any argument', '        command += ["-e", f"{env}=value"]')],
-    "live_image_tag_accepted": [(LRT, 'IMAGE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}")', 'IMAGE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}(@sha256:[0-9a-f]{64})?")')],
+    "live_image_tag_accepted": [(LRT, 'IMAGE = re.compile(r"(?:[a-z0-9][a-z0-9._/:-]{0,200}@)?sha256:[0-9a-f]{64}")', 'IMAGE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}(@sha256:[0-9a-f]{64})?")')],
+    "live_image_bare_id_refused": [(LRT, 'IMAGE = re.compile(r"(?:[a-z0-9][a-z0-9._/:-]{0,200}@)?sha256:[0-9a-f]{64}")', 'IMAGE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}")')],
+    "live_image_id_any_length_accepted": [(LRT, 'IMAGE = re.compile(r"(?:[a-z0-9][a-z0-9._/:-]{0,200}@)?sha256:[0-9a-f]{64}")', 'IMAGE = re.compile(r"(?:[a-z0-9][a-z0-9._/:-]{0,200}@)?sha256:[0-9a-f]{1,64}")')],
     "live_proof_wait_unbounded": [(LRT, "PROOF_TIMEOUT_SECONDS = 60", "PROOF_TIMEOUT_SECONDS = 600000")],
     # ---- the rate -------------------------------------------------------------------------------------------------------
     "live_rate_gap_halved": [(LRL, "self._interval = 1.0 / per_second", "self._interval = 0.5 / per_second")],

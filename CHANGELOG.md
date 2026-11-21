@@ -14,7 +14,7 @@ Format: Keep a Changelog; versions follow SemVer.
   IPv4-embedding IPv6 never); a refused host is not contacted and its operations are recorded as refused. A credential is named
   by `--credential NAME=ENVVAR`, reaches only the declared host over verified TLS, and a leak guard fails the run if any form of it is in any
   stored byte. What the sandbox returns is untrusted: only two kinds of file, strict envelopes, re-redacted artifacts.
-- Migration `0005`: append-only `approvals`, `approval_revocations` and `live_runs`. Decisions D-E74 to D-E80.
+- Migration `0005`: append-only `approvals`, `approval_revocations` and `live_runs`. Decisions D-E74 to D-E81.
 
 ### Added (M5: API-target scopes, offline)
 - A scope may list `api_targets` (`docs/api-targets.md`): REST APIs with a base path, named principals, explicit `GET`/`HEAD` endpoints
