@@ -208,9 +208,13 @@ def test_a_reply_that_is_valid_json_of_the_wrong_shape_is_invalid() -> None:
 
 
 def test_a_reply_that_echoes_the_key_is_refused_as_a_whole() -> None:
-    body = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}], "note": KEY})
+    body = json.dumps(
+        {"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE + " " + KEY}]}
+    )  # a perfect shape
     error = unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(body))))
-    assert error.status == "invalid" and KEY not in str(error)
+    assert error.status == "invalid" and "key" in error.detail and KEY not in str(error)
+    extra = json.dumps({"items": [{"id": "condition-0", "text": "Put simply: " + SENTENCE}], "note": KEY})
+    assert unavailable(Recorder(lambda _r: httpx2.Response(200, json=message(extra)))).status == "invalid"
 
 
 # --------------------------------------------------------------------------------------------- the offline model ----
