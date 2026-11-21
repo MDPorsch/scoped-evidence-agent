@@ -602,8 +602,8 @@ def test_the_migrated_check_constraints_are_exactly_the_models(data_dir: DataDir
         from_migration, from_models = _check_bodies(migrated_sql[table]), _check_bodies(modelled_sql[table])
         assert from_migration == from_models, table
         total += len(from_migration)
-    # engagements 2, targets 3, runs 6, observations 5, artifacts 3, finding_drafts 4, audit_events 4: the parser found them all
-    assert total == 27
+    # engagements 2, targets 5, runs 6, observations 5, artifacts 3, finding_drafts 4, audit_events 4: the parser found them all
+    assert total == 29
 
 
 def test_the_migrated_unique_constraints_and_foreign_keys_are_exactly_the_models(

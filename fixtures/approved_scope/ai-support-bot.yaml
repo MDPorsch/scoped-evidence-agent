@@ -1,0 +1,35 @@
+engagement_id: lab-ai-support-bot-001
+owner_approval_ref: local-lab-consent
+expires_at: '2026-12-31T23:59:00Z'
+mode: offline
+allowed_targets: []
+allowed_operations: [ai_metadata, ai_probe]
+max_requests: 12
+max_parallelism: 2
+per_request_timeout_seconds: 5
+max_response_bytes: 100000
+follow_redirects: false
+ai_targets:
+  - id: support-bot
+    kind: chat_endpoint
+    layer: application
+    environment: test
+    host: assistant.example.invalid
+    scheme: https
+    port: 443
+    api_style: openai_compatible
+    operations: [ai_metadata, ai_probe]
+    metadata_paths: ['/v1/models']
+    probe_path: /v1/chat/completions
+    probe_sets: [canary-echo-v1, output-structure-v1]
+    test_categories: [prompt_injection, output_handling]
+    limits:
+      max_model_requests: 8
+      max_input_tokens: 500
+      max_output_tokens: 300
+      max_total_tokens: 6400
+    rules:
+      tool_invocation: forbidden
+      persistent_state_writes: forbidden
+      personal_data_in_probes: forbidden
+      target_output_to_assistant_model: forbidden

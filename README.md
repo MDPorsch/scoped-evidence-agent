@@ -17,8 +17,9 @@ those targets and keeps it in a form you can defend afterwards:
 1. **Checks the scope first.** Wildcards, IP addresses, redirects, expired dates and ambiguous names are refused, never
    guessed at. The scope's hash is recorded, and a scope edited after approval is refused.
 2. **Collects only what the scope allows**, and nothing that a target tells it to: DNS records, the TLS certificate's facts,
-   HTTP headers and a few well-known files (`security.txt`, `robots.txt`, an OpenAPI document), and, for an AI system, its
-   model list and a few fixed, benign probes. A redirect or a CNAME to somewhere else is written down and **not** followed.
+   HTTP headers and a few well-known files (`security.txt`, `robots.txt`, an OpenAPI document), for an **API** the endpoints
+   the scope lists (read-only, as each test user, recording the shape of the answers and never the values), and, for an AI
+   system, its model list and a few fixed, benign probes. A redirect or a CNAME to somewhere else is written down and **not** followed.
 3. **Redacts and stores it safely.** Cookies, keys and tokens are replaced before anything is written; every artifact is named by its
    hash; the files are private; evidence expires after 30 days unless you say otherwise.
 4. **Logs everything tamper-evidently.** Every step, and every refused attempt, is a hash-chained audit entry.

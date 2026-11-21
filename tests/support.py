@@ -16,6 +16,8 @@ NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
 PACKS = ("healthy", "misconfigured", "poisoned")
 SCOPE_FILES = {name: FIXTURES / "approved_scope" / f"lab-{name}.yaml" for name in PACKS}
+AI_PACK = "ai-support-bot"
+SCOPE_FILES[AI_PACK] = FIXTURES / "approved_scope" / f"{AI_PACK}.yaml"  # the AI-system scope (not one of PACKS)
 
 
 def scope_text(name: str = "healthy") -> str:
@@ -30,6 +32,15 @@ def scope_dict(name: str = "healthy") -> dict[str, Any]:
 def dump(data: Any) -> str:
     """YAML text for a scope dict. A str that looks like a timestamp is quoted by the dumper."""
     return yaml.safe_dump(data, sort_keys=False)
+
+
+def ai_scope_dict() -> dict[str, Any]:
+    return scope_dict(AI_PACK)
+
+
+def pack(name: str) -> dict[str, Any]:
+    loaded: dict[str, Any] = yaml.safe_load((FIXTURES / "web_responses" / f"{name}.yaml").read_text(encoding="utf-8"))
+    return loaded
 
 
 def golden(name: str) -> list[dict[str, Any]]:

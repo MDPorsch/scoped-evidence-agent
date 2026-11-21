@@ -272,3 +272,38 @@ def test_timestamps_are_printed_in_utc_whatever_zone_they_carry() -> None:
 
 def test_db_upgrade_says_the_database_is_ready(data_dir: Path) -> None:
     assert "database ready" in invoke("db", "upgrade", "--data-dir", str(data_dir)).output
+
+
+# ------------------------------------------------------------------------------- AI-system scopes ----
+def test_validating_the_ai_scope_shows_the_ai_targets_and_their_worst_case_consumption() -> None:
+    from tests.support import AI_PACK  # noqa: PLC0415
+
+    result = invoke("scope", "validate", str(SCOPE_FILES[AI_PACK]))
+    assert result.exit_code == 0, result.output
+    assert "planned operations: 5 (dns 0, tls 0, http 0, ai metadata 1, ai probes 4)" in result.output
+    assert "ai targets: 1   probe requests: 4   worst-case tokens: 3200" in result.output
+    assert "support-bot (chat_endpoint, test)" in result.output
+    assert "not proof of authorization" in result.output
+
+
+def test_a_web_only_scope_prints_no_ai_lines() -> None:
+    result = invoke("scope", "validate", str(SCOPE_FILES["healthy"]))
+    assert (
+        "ai " not in result.output.replace("ai-", "")
+        and "planned operations: 5 (dns 1, tls 1, http 3)" in result.output
+    )
+
+
+def test_an_ai_scope_that_allows_a_rule_is_refused_with_its_code_and_field(tmp_path: Path) -> None:
+    from tests.support import ai_scope_dict  # noqa: PLC0415
+
+    data = ai_scope_dict()
+    data["ai_targets"][0]["rules"]["tool_invocation"] = "allowed"
+    path = tmp_path / "ai.yaml"
+    path.write_text(dump(data), encoding="utf-8")
+    result = invoke("scope", "validate", str(path))
+    assert (
+        result.exit_code == 1
+        and "error SCOPE-011" in result.output
+        and "ai_targets[0].rules.tool_invocation" in result.output
+    )

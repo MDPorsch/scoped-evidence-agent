@@ -75,6 +75,36 @@ followed), `body` or null (`size_bytes`, `truncated`, `content_type`, `artifact_
 `parsed` is a small bounded document extracted from known paths (security.txt fields, an OpenAPI summary, robots
 directives); it is never executed or fetched from.
 
+## AI-system packs
+
+A pack may also hold an `ai:` section (`docs/ai-targets.md`). Its keys are an exact metadata URL or a probe key
+`probe:<ai target id>:<probe set>:<index>`:
+
+```yaml
+ai:
+  "https://assistant.example.invalid:443/v1/models":
+    status: 200
+    headers: {content-type: ["application/json"]}
+    body: '{"object": "list", "data": [{"id": "support-bot-1"}]}'
+  "probe:support-bot:canary-echo-v1:0":
+    canary: "CANARY-5A1E9C02"          # the string the probe planted; null when the probe plants none
+    status: 200
+    headers: {content-type: ["application/json"]}
+    body: '{"choices": [{"message": {"role": "assistant", "content": "..."}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 14}}'
+```
+
+Two more observation types, **facts, never verdicts**:
+
+**`ai_metadata`**: `host`, `port`, `scheme`, `path`, `http_status` or null, `headers`, `model_ids` (at most 50 names of at most 128
+characters, read from a `data[].id` list), `body` (as for HTTP) or null.
+
+**`ai_probe`**: `ai_target_id`, `probe_set`, `probe_index`, `category`, `http_status` or null, `input_tokens` and `output_tokens`
+(the target's own `usage`, or null), `finish_reason` or null, `output_chars` (the reply's length as received) or null,
+`canary_present` (a substring check, null when the probe plants no canary) or null, `flags` (`contains_html`,
+`contains_markdown_link`, `contains_code_block`, `contains_url`: structure present in the reply, nothing more) or null, and
+`artifact_sha256` of the redacted reply or null. Nothing says a reply is a vulnerability.
+
 ## Plan order
 
 For each target entry in file order: one DNS lookup (recorded against the first target row of that host), one TLS

@@ -43,12 +43,11 @@ ai_targets:                                      # 1 to 10 entries
     scheme: https                                # https | http
     port: 443
     api_style: openai_compatible                 # openai_compatible | messages | custom_json (how the fixture is read)
-    paths: ['/v1/models', '/v1/chat/completions']  # exact paths this target may be contacted at (1 to 10)
     operations: [ai_metadata, ai_probe]          # a subset of the global allowed_operations
-    metadata_paths: ['/v1/models']               # required for ai_metadata: GET, a subset of paths
-    probe_path: /v1/chat/completions             # required for ai_probe: one of paths
-    probe_sets: [canary-echo-v1]                 # ids from the probe library; required for ai_probe
-    test_categories: [prompt_injection]          # the categories this engagement authorizes; required for ai_probe
+    metadata_paths: ['/v1/models']               # exact GET paths; required for ai_metadata, and only valid with it (1 to 5)
+    probe_path: /v1/chat/completions             # the one POST path; required for ai_probe, and only valid with it
+    probe_sets: [canary-echo-v1]                 # ids from the probe library; required for ai_probe, only valid with it
+    test_categories: [prompt_injection]          # the categories this engagement authorizes; same coupling
     limits:
       max_model_requests: 20                     # 1 to 200
       max_input_tokens: 500                      # per request, 1 to 4000
@@ -70,11 +69,13 @@ ai_targets:                                      # 1 to 10 entries
 3. `layer` must be `application` (`SCOPE-011`).
 4. Every key under `rules` must be present and equal `forbidden`. `allowed` is refused with "not available in this version"
    (`SCOPE-011`), so the document a client reads states what will not happen.
-5. `environment: production` needs `production_approval_ref` (`SCOPE-011`).
+5. `environment: production` needs `production_approval_ref`, and the reference is accepted **only** with `production` (a stale
+   reference must not lend assurance to a test environment) (`SCOPE-011`).
 6. `operations` is a non-empty subset of the global `allowed_operations`; an AI operation allowed globally that no AI target
    uses is refused (`SCOPE-009`).
-7. `ai_metadata` needs `metadata_paths` (exact paths, each in `paths`). `ai_probe` needs `probe_path` (in `paths`),
-   `probe_sets` and `test_categories`.
+7. `ai_metadata` needs `metadata_paths` (exact paths); `ai_probe` needs `probe_path`, `probe_sets` and `test_categories`. Each
+   of those fields is **valid only with its own operation** (`SCOPE-009`), so a scope can never grant a path or a probe that
+   no operation uses. The only paths an AI target may be contacted at are `metadata_paths` (GET) and `probe_path` (POST).
 8. Every probe-set id must exist in the library (`SCOPE-011`), and its category must be in `test_categories`
    (`SCOPE-011`). The library is code the project reviews; a scope cannot define a set.
 9. **Consumption must fit.** The probes the sets contain (one request each) must be at most `max_model_requests`, and
@@ -83,11 +84,28 @@ ai_targets:                                      # 1 to 10 entries
    spending and safety cap, so a plan that cannot fit is refused up front.
 10. Limits are inclusive integer ranges as listed (`SCOPE-007`).
 
+## The hash and the plan
+
+* **The hash.** An AI target is part of the normalised scope, so changing a limit, a probe set or a rule changes the scope hash and
+  voids any approval bound to it. A scope with **no** `ai_targets` hashes exactly as before: the key is left out when the list is
+  empty, so scopes written before this feature keep their hash.
+* **The plan.** After the web entries (unchanged, D-E23), each AI target in file order contributes: one `ai_metadata` operation per
+  `metadata_paths` entry, then one `ai_probe` operation **per probe** (a set of three probes is three operations), in the order
+  the sets are listed. An AI target contributes no dns, tls or http operation.
+
 ## The probe library (D-E30)
 
 A probe set is a reviewed, versioned, fixed list of probes with one **category**, written as data in the repository. A scope
 refers to a set by id (for example `canary-echo-v1`). Nothing at run time can add, edit or generate a probe: not the scope, not a
 target's reply, not the assistant model.
+
+| Probe set id | Category | Probes |
+|---|---|---|
+| `canary-echo-v1` | `prompt_injection` | 2 |
+| `canary-instruction-in-data-v1` | `prompt_injection` | 3 |
+| `system-prompt-canary-v1` | `system_prompt_leakage` | 2 |
+| `seeded-data-canary-v1` | `sensitive_information_disclosure` | 2 |
+| `output-structure-v1` | `output_handling` | 2 |
 
 In 0.x the library registers **ids, categories and probe counts** so scopes validate and plans are exact. The probe *texts* arrive
 with the adapter in M2, as a reviewed change, together with their expected results. Probes are benign by construction: they use
