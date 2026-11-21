@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security problem
-    url: https://github.com/MDPorsch/scoped-evidence-agent/security/policy
-    about: Read the security policy first. Do not open a public issue with exploit detail.
+  - name: Report a security problem privately
+    url: https://github.com/MDPorsch/scoped-evidence-agent/security/advisories/new
+    about: Use private vulnerability reporting. Do not open a public issue with exploit detail.

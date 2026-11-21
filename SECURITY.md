@@ -2,10 +2,9 @@
 
 ## Reporting a vulnerability
 
-Please report privately, not in a public issue: use GitHub's *Report a vulnerability* (Security tab) on this
-repository if the button is there. If it is not, open an issue titled **Security contact request** with **no detail** about the
-problem, and the maintainer will reply with a private way to send it. In the private report, include what you did, what you
-expected and what happened. Expect an acknowledgement; this is a single-maintainer project, so there is no response-time guarantee.
+Please report privately, not in a public issue: use GitHub's **Report a vulnerability** button on the repository's Security tab
+(https://github.com/MDPorsch/scoped-evidence-agent/security/advisories/new). Include what you did, what you expected and what
+happened. Expect an acknowledgement; this is a single-maintainer project, so there is no response-time guarantee.
 
 ## What is in scope
 
