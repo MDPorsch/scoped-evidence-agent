@@ -430,3 +430,15 @@ def test_the_status_of_the_offline_provider_asks_for_no_key(data_dir: Path) -> N
     invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
     out = invoke("ai", "status", "--data-dir", str(data_dir)).output
     assert "provider: offline" in out and "key:" not in out and "hosts masked: yes" in out
+
+
+def test_enabling_does_not_replace_a_broken_configuration_it_refuses_and_leaves_it_alone(data_dir: Path) -> None:
+    path = config_path(DataDir(data_dir).root)
+    path.write_text("not json")
+    path.chmod(0o600)
+    out = invoke("ai", "enable", "--provider", "offline", "--data-dir", str(data_dir))
+    assert out.exit_code == 1 and "AI-001" in out.output and "Traceback" not in out.output
+    assert path.read_text() == "not json"
+    path.chmod(0o644)  # an unsafe mode is refused too, and not repaired by enabling
+    out = invoke("ai", "enable", "--yes", "--data-dir", str(data_dir))
+    assert out.exit_code == 1 and "AI-001" in out.output and path.read_text() == "not json"
