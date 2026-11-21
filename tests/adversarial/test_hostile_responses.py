@@ -75,7 +75,8 @@ def test_every_injection_payload_is_kept_as_data_and_changes_nothing_else(
     loaded = parse_scope(scope_text("healthy"), now=NOW)
     result = run(env, pack_variant(tmp_path, "healthy", edit))
     db, _, data_dir = env
-    assert result.planned == 5 and result.coverage.complete and result.exit_code is ExitCode.OK and loaded.sha256
+    assert result.planned == 5 and result.coverage.complete and loaded.sha256
+    assert result.exit_code is ExitCode.REVIEW  # the variant's robots.txt lists /admin, which a rule drafts about
     with db.begin() as session:
         assert session.execute(text("SELECT host_canonical FROM targets")).scalars().all() == [HOST]
         assert session.execute(text("SELECT count(*) FROM engagements")).scalar() == 1

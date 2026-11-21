@@ -4,7 +4,7 @@ IDs are `D-E<nn>` (E for evidence agent). **Proposed** means I chose it so the w
 approval. **Review-gated** means the owner's standing rule applies (auth, egress, token handling, reporting
 privacy, release credentials): it needs an explicit yes before anything is merged or published.
 
-**Every decision here, D-E01 to D-E60, is approved by the owner.** D-E28 to D-E47 on 2026-11-20 ("Approve D-E28 to D-E47");
+**Every decision here, D-E01 to D-E65, is approved by the owner.** D-E61 to D-E65 (the M3 rules, storage, review and reports) on 2026-11-21 ("Approve reviews. Yes", given in answer to the M3 checklist). D-E28 to D-E47 on 2026-11-20 ("Approve D-E28 to D-E47");
 D-E56 to D-E60 on 2026-11-21 ("Approve D-E56 to D-E60"); D-E01 to D-E27 and D-E48 to D-E55 on 2026-11-21 ("Approve those waiting
 for review"). That includes D-E05 (exact paths, not prefixes) and D-E20 (Apache-2.0, copyright Mohammed Orunsolu).
 Approving a decision does not build it: D-E47 puts live mode last, after the offline collectors; API scopes (D-E48 to D-E55)
@@ -95,3 +95,12 @@ and the finding rules (D-E56 to D-E60) are built in later milestones.
 | D-E59 | **The tool never produces exploit code, attack payloads, attack chains, state-changing instructions or version-specific abuse guidance,** whoever asks and however it is configured. | **Given** (2026-11-21: "Approve D-E56 to D-E60") (was review-gated: what the tool produces) |
 | D-E60 | **All finding text comes from a reviewed deterministic rule catalogue.** The optional model may only rephrase a rule's sentences and is validated against the rule's output; anything the rule did not say is dropped. | **Given** (2026-11-21: "Approve D-E56 to D-E60") (was review-gated: model authority) |
 
+## Findings, review and reports (M3, `docs/correlator.md`)
+
+| ID | Decision | Status |
+|---|---|---|
+| D-E61 | **The closed class list and the version-1 rule catalogue.** Adding a class or a rule is a reviewed change with its tests and mutants. | **Given** (2026-11-21: "Approve reviews. Yes") (was proposed) |
+| D-E62 | **Storage:** a finding's details are immutable (`finding_details`: update and delete refused); reviews are append-only (`finding_reviews`); a run records `planned_operations`; migration `0002`; `category` holds the class id and allows `_`. | **Given** (2026-11-21: "Approve reviews. Yes") (was proposed) |
+| D-E63 | **Review:** `confirmed` -> `VALIDATED`, `not_exploitable` -> `FALSE_POSITIVE`, `inconclusive` -> recorded and unchanged; the reviewer types the first eight characters of the finding id; a reason and a named reviewer are required; the first review moves the run to `HUMAN_REVIEW`; a run is never `EXPORTED` in 0.x. | **Given** (2026-11-21: "Approve reviews. Yes") (was review-gated: who may validate) |
+| D-E64 | **Reports:** one local file built from the database, no artifact content, human-typed text redacted, no export time (byte-reproducible), new regular file only (no overwrite, no symlink, no `..`, not inside the data directory), mode `0600`, drafts labelled. | **Given** (2026-11-21: "Approve reviews. Yes") (was review-gated: reporting privacy) |
+| D-E65 | **CLI:** `run` also correlates; `findings list RUN` and `findings show ID` replace the contract's `findings draft RUN`; exit `3` means a complete collection with drafts to review. | **Given** (2026-11-21: "Approve reviews. Yes") (was proposed) |

@@ -17,17 +17,17 @@ generated inputs, `negative/` the "this must be impossible" checks.
 | AE-06 | Response contains prompt injection | no change to tools, scope or secrets | `adversarial/test_hostile_responses.py` (every payload in `fixtures/poisoned_text/` is kept as data and changes nothing else), `integration/test_collection.py` (the poisoned pack) | **Covered** for collection. The model boundary is M4 |
 | AE-07 | Headers contain cookies or API keys | redacted before storage and before a model | `unit/test_redact.py`, `integration/test_collection.py` (a secret in a header, a body and a reply is stored nowhere; the source hash ignores a removed secret), `unit/test_logs.py` | **Covered** for storage. The model boundary is M4 |
 | AE-08 | Model returns invalid JSON or a hostile schema | rejected, bounded retry or fallback | none | **Planned (M4)** |
-| AE-09 | Model asserts a vulnerability with no evidence | kept as draft or marked unsupported | `unit/test_state_machine.py`, `integration/test_observations_findings.py` (the model cannot create a draft or move any state; a draft needs evidence) | **Partial**: authority is covered. Claim validation is M4 |
+| AE-09 | Model asserts a vulnerability with no evidence | keep draft / mark unsupported | `unit/test_state_machine.py`, `integration/test_observations_findings.py` (the model cannot create a draft or move any state; a draft needs evidence), `integration/test_review.py` (a model cannot review), `integration/test_findings_storage.py` (a step may cite only the draft's own evidence) | **Covered** for what exists: a draft is made only by a rule and cites its evidence. Claim validation for a model's text is M4 |
 | AE-10 | Timeout, HTTP error, DNS failure | recorded as an error, run incomplete (exit 2), never clean | `unit/test_errors_and_outcome.py`, `unit/test_offline_adapters.py` (every odd entry), `integration/test_collection.py` (a missing answer, a declared failure, an exhausted budget, a crashing adapter) | **Covered** |
 | AE-11 | Crash between artifact write and row, or a DB failure | atomic store, no orphan, no dangling row | `integration/test_artifacts.py` (failed rename, failed fsync, database failure after the write) | **Covered** |
 | AE-12 | Racing workers share one budget | no overshoot | `integration/test_budget.py` (four threads, 120 attempts, 40 units), `property/test_properties.py` | **Covered**. "Shared" is read as one run's budget across workers |
 | AE-13 | 1 MB body, zip bomb, huge header, malformed certificate | hard caps, safe errors | `adversarial/test_hostile_responses.py` (over the limit, exactly at it, header caps, compressed and binary bodies, deep nesting, pathological text), `unit/test_observation_schemas.py`, `unit/test_parse.py`, `integration/test_artifacts.py` | **Covered** |
-| AE-14 | Export or purge path such as `../../secret` | traversal refused, no overwrite | `integration/test_artifacts.py` (forged path, symlinks, non-digest names) | **Partial**: artifacts and purge. Report export is M3 |
+| AE-14 | Export or purge path such as `../../secret` | traversal refused, no overwrite | `integration/test_artifacts.py` (forged path, symlinks, non-digest names), `integration/test_report.py` (`..`, symlinks, an existing file, a race, the data directory, a missing directory, a pipe) | **Covered**: artifacts, purge and report export |
 | AE-15 | Cancel mid-run, then retry | no lost audit, new attempt, history kept | `integration/test_runs.py`, `integration/test_collection.py` (cancelling mid-run keeps what was collected and the audit trail; a fresh run completes) | **Covered** |
 | AE-16 | A stale observation cited by a newer run | refused by the database | `integration/test_observations_findings.py`, `integration/test_database.py` (composite foreign key) | **Covered** |
 | AE-17 | Model provider unavailable | deterministic offline fallback | none | **Planned (M4)** |
 | AE-18 | Non-GET, or a query carrying a token | refused | `unit/test_scope_hosts_paths.py`, `unit/test_observation_schemas.py`, `unit/test_pack.py` (a pack key with a query is refused; a key has no way to name another method) | **Covered** offline: the adapter only answers `GET` keys. The live adapter is M5 |
-| AE-19 | Two aliases for one host | duplicates refused in the scope; correlation dedupes only within scope | `unit/test_scope_schema.py` | **Partial**: scope. Correlation is M3 |
+| AE-19 | Two aliases for one host | duplicates refused in the scope; correlation dedupes only within scope | `unit/test_scope_schema.py`, `unit/test_rules.py` (drafts are grouped per target and cite every observation that fired) | **Covered** |
 | AE-20 | Content asks to widen the scope | refused and noted | `adversarial/test_hostile_responses.py`, `integration/test_collection.py` (the poisoned pack adds no target and changes nothing but its own observations) | **Covered** for collection. The model boundary is M4 |
 
 ## Additional invariants (not in the spec's list)
@@ -62,20 +62,39 @@ generated inputs, `negative/` the "this must be impossible" checks.
 | AI-13 | An AI observation cannot be filed under a web target and a web observation cannot be filed under an AI target, in the application and in the database | `integration/test_ai_targets_storage.py` | **Covered** |
 | AI-14 | A scope without AI targets keeps its hash | `unit/test_scope_schema.py`, `unit/test_scope_ai_targets.py` | **Covered** |
 
-## Validation steps (D-E58, D-E59), built with the correlator in M3
+## Validation steps (D-E58, D-E59), built with the correlator in M3 (`docs/correlator.md`)
 
 | ID | Invariant | Status |
 |---|---|---|
-| VS-01 | A step whose kind is not on the closed list, or whose intrusiveness does not match its kind, is dropped and reported | **Planned (M3)** |
-| VS-02 | A step naming a host, port, path, origin or probe that is not in the scope is dropped (a port 80 step with no port 80 in the scope) | **Planned (M3)** |
-| VS-03 | No step contains a shell metacharacter, `-k`/`--insecure`, a body flag, a method other than GET, HEAD or OPTIONS, or a credential; checked over every rule's output and by Hypothesis over target-derived strings | **Planned (M3)** |
-| VS-04 | A value that came from a target appears only as quoted data and never in `action` or `example_invocation` (poisoned fixture) | **Planned (M3)** |
-| VS-05 | A draft has at most 8 steps, each at most 400 characters, each citing an observation of its own run, each with both branches | **Planned (M3)** |
-| VS-06 | A dropped step is reported in `validation_steps_dropped` with its rule; nothing disappears silently | **Planned (M3)** |
-| VS-07 | The tool never runs a validation step in offline mode (no socket opens: the global guard) | **Planned (M3)** |
-| VS-08 | Mutation check over the rule catalogue and the step checker | **Planned (M3)** |
+| VS-01 | A step whose kind is not on the closed list, or whose intrusiveness does not match its kind, is dropped and reported | `unit/test_steps.py`, `unit/test_finding_models.py` | **Covered** |
+| VS-02 | A step naming a host, port, path, origin or probe that is not in the scope is dropped (a port 80 step with no port 80 in the scope) | `unit/test_steps.py` (every kind, port 80, scheme, operation not allowed, unlisted path, probe index, an origin no scope can declare yet) | **Covered** |
+| VS-03 | No step contains a shell metacharacter, `-k`/`--insecure`, a body flag, a method other than GET, HEAD or OPTIONS, or a credential; checked over every rule's output and by Hypothesis over target-derived strings | `unit/test_steps.py` (a Hypothesis property over arbitrary hosts, paths, record types, methods, origins and field names; the value checks also with the scope check switched off), `adversarial/test_hostile_findings.py` | **Covered** |
+| VS-04 | A value that came from a target appears only as quoted data and never in `action` or `example_invocation` (poisoned fixture) | `unit/test_steps.py`, `unit/test_rules.py`, `adversarial/test_hostile_findings.py` (a Hypothesis property over every target-controlled field; the pack that says one phrase everywhere) | **Covered** |
+| VS-05 | A draft has at most 8 steps, each at most 400 characters, each citing an observation of its own run, each with both branches | `unit/test_steps.py`, `unit/test_finding_models.py`, `integration/test_findings_pipeline.py` | **Covered** |
+| VS-06 | A dropped step is reported in `validation_steps_dropped` with its rule; nothing disappears silently | `unit/test_steps.py`, `integration/test_findings_pipeline.py` (no step of any shipped pack is dropped), `integration/test_report.py` and `integration/test_findings_cli.py` (dropped steps are shown) | **Covered** |
+| VS-07 | The tool never runs a validation step in offline mode (no socket opens: the global guard) | `conftest.py` (the guard on every test), `negative/test_no_network.py`; a step is text, and no code path executes one | **Covered** |
+| VS-08 | Mutation check over the rule catalogue and the step checker | `tools/mutation.py` (the `steps_*`, `rules_*` and `findings_*` mutants) | **Covered** |
 
 ## What this table does not say
 
 A *covered* case has tests; it is not a proof. Mutation testing (`tools/mutation.py`) checks that the tests notice a deliberate
 bug in each guarded line, and its result for M1 is in `docs/milestones/M1.md`.
+
+## Findings, review and reports (M3; D-E56 to D-E65)
+
+| ID | Invariant | Covered by | Status |
+|---|---|---|---|
+| FN-01 | A draft's class, assessment, severity suggestion and step kinds come from closed vocabularies; the assessment has no `confirmed`; the tool's own severity is always `unknown` | `unit/test_finding_models.py` | **Covered** |
+| FN-02 | Every shipped pack produces exactly its hand-derived drafts, in catalogue order, each citing the right observations | `integration/test_findings_pipeline.py`, `fixtures/expected_findings/` | **Covered** |
+| FN-03 | Each rule fires on its condition and on none other (every threshold, both sides of every edge, every shape) | `unit/test_rules.py` | **Covered** |
+| FN-04 | What a target says reaches a draft only as quoted data of a strict shape and bounded length; a long or odd value is not quoted and never breaks the draft | `unit/test_rules.py`, `adversarial/test_hostile_findings.py` | **Covered** |
+| FN-05 | Drafting is all or nothing; a crashing or invalid rule fails the run with the evidence kept and no draft stored | `integration/test_findings_pipeline.py` | **Covered** |
+| FN-06 | A finding's details cannot be changed or deleted, and a review cannot be changed or deleted, by anyone with the database | `integration/test_findings_pipeline.py` (the triggers) | **Covered** |
+| FN-07 | Only a human with a name and a reason reviews; `confirmed`, `not_exploitable` and `inconclusive` map as documented; a closed finding cannot be reviewed again; a refusal is audited | `integration/test_review.py` | **Covered** |
+| FN-08 | A review needs the id typed back and there is no way to skip it | `integration/test_findings_cli.py` | **Covered** |
+| FN-09 | A secret typed into a reason is stored and reported redacted | `integration/test_review.py`, `integration/test_report.py` | **Covered** |
+| FN-10 | A report holds no artifact content, no raw header or body, no starter's name, no export time and no path; the same run exports byte-identical files in both formats | `integration/test_report.py` | **Covered** |
+| FN-11 | Markdown cannot be made to carry markup, a link or HTML by anything stored | `integration/test_report.py`, `adversarial/test_hostile_findings.py` | **Covered** |
+| FN-12 | A report is written to a new private file only, atomically, and never inside the data directory | `integration/test_report.py` | **Covered** |
+| FN-13 | A database from the previous revision upgrades and keeps its data | `integration/test_findings_pipeline.py` | **Covered** |
+

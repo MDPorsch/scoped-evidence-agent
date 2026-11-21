@@ -22,7 +22,7 @@ MAX_PARSED_DEPTH = 4
 MAX_PARSED_KEYS = 64
 _HEADER_NAME = re.compile(r"[a-z0-9_-]{1,64}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_CATEGORY = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+_CATEGORY = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 _AI_ID = r"^[a-z0-9][a-z0-9-]{1,39}$"
 _PROBE_SET = r"^[a-z0-9][a-z0-9-]{1,62}$"
 
@@ -226,7 +226,7 @@ class AiProbePayload(_Model):
 
 # -------------------------------------------------------------------------------------- envelope ----
 Payload = DnsPayload | TlsPayload | HttpPayload | AiMetadataPayload | AiProbePayload
-_PAYLOADS: dict[str, type[_Model]] = {
+PAYLOAD_MODELS: dict[str, type[_Model]] = {
     "dns_metadata": DnsPayload,
     "tls_metadata": TlsPayload,
     "http_metadata": HttpPayload,
@@ -254,7 +254,7 @@ class ObservationEnvelope(_Model):
     @classmethod
     def _typed_payload(cls, data: Any) -> Any:
         if isinstance(data, dict) and isinstance(data.get("payload"), dict):
-            model = _PAYLOADS.get(data.get("observation_type", ""))
+            model = PAYLOAD_MODELS.get(data.get("observation_type", ""))
             if model is not None:
                 data = {**data, "payload": model.model_validate(data["payload"])}
         return data
@@ -263,7 +263,7 @@ class ObservationEnvelope(_Model):
     def _consistent(self) -> ObservationEnvelope:
         if _ADAPTER_FOR[self.observation_type] != self.adapter:
             raise ValueError("the adapter does not produce this observation type")
-        if not isinstance(self.payload, _PAYLOADS[self.observation_type]):
+        if not isinstance(self.payload, PAYLOAD_MODELS[self.observation_type]):
             raise ValueError("the payload does not match the observation type")
         return self
 
@@ -278,5 +278,5 @@ class FindingDraftCreate(_Model):
     @classmethod
     def _category(cls, value: str) -> str:
         if not _CATEGORY.fullmatch(value):
-            raise ValueError("category is lower-case letters, digits and hyphens, at most 40 characters")
+            raise ValueError("category is lower-case letters, digits, hyphens and underscores, at most 40 characters")
         return value

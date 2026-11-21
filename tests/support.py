@@ -48,6 +48,14 @@ def pack(name: str) -> dict[str, Any]:
     return loaded
 
 
+def finding_golden(name: str) -> list[dict[str, Any]]:
+    """The hand-derived expected drafts of a pack (fixtures/expected_findings): the M3 oracle."""
+    import json  # noqa: PLC0415
+
+    loaded: list[dict[str, Any]] = json.loads((FIXTURES / "expected_findings" / f"{name}.json").read_text("utf-8"))
+    return loaded
+
+
 def golden(name: str) -> list[dict[str, Any]]:
     import json  # noqa: PLC0415
 
@@ -239,3 +247,48 @@ def pack_variant(tmp_path: Path, name: str, edit: Any) -> Path:
     path = tmp_path / f"{name}-variant.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False, width=10_000), encoding="utf-8")
     return path
+
+
+def observation_ids(db: Any, run_id: str) -> list[str]:
+    """The ids of a run's observations in collection order."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    with db.begin() as session:
+        return list(
+            session.execute(
+                text("SELECT id FROM observations WHERE run_id = :run ORDER BY rowid"), {"run": run_id}
+            ).scalars()
+        )
+
+
+def run_pack(env: Any, name: str, pack_path: Path | None = None, *, loaded: Any = None, **kw: Any) -> Any:
+    """Collect and correlate one of the committed scope/pack pairs (or a variant pack) as a human named alice."""
+    import asyncio  # noqa: PLC0415
+
+    from scopedagent.adapters.pack import load_pack  # noqa: PLC0415
+    from scopedagent.domain.state_machine import Actor, ActorType  # noqa: PLC0415
+    from scopedagent.pipeline.orchestrator import execute_run  # noqa: PLC0415
+    from scopedagent.policy.scope import parse_scope  # noqa: PLC0415
+
+    db, store, _ = env
+    the_pack = load_pack(pack_path or FIXTURES / "web_responses" / f"{name}.yaml")
+    human = Actor(ActorType.HUMAN, "alice")
+    return asyncio.run(
+        execute_run(
+            db,
+            store,
+            loaded=loaded or parse_scope(scope_text(name), now=NOW),
+            pack=the_pack,
+            human=human,
+            now=NOW,
+            **kw,
+        )
+    )
+
+
+def findings_of(db: Any, run_id: str) -> list[tuple[Any, Any]]:
+    """Each finding of a run with its stored details, in the order it was drafted."""
+    from scopedagent.storage.repositories import get_finding_details, list_findings  # noqa: PLC0415
+
+    with db.begin() as session:
+        return [(finding, get_finding_details(session, finding.id)) for finding in list_findings(session, run_id)]

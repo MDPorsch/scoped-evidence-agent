@@ -1,0 +1,54 @@
+[
+  {
+    "rule_id": "R-HDR-01",
+    "vulnerability_class": "missing_security_header",
+    "title": "Missing security headers on poison.example.invalid:443",
+    "confidence": 0.7,
+    "evidence": [
+      2,
+      3,
+      4
+    ],
+    "cwe_candidates": [
+      "CWE-319",
+      "CWE-693"
+    ],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "Strict-Transport-Security was absent from all 3 collected responses of this target.",
+      "Content-Security-Policy was absent from all 3 collected responses of this target.",
+      "X-Content-Type-Options was absent from all 3 collected responses of this target."
+    ],
+    "facts": [],
+    "step_kinds": [
+      "read_recorded_observation",
+      "rerequest_listed_path",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-INFO-02",
+    "vulnerability_class": "information_disclosure",
+    "title": "Sensitive-looking paths listed in robots.txt on poison.example.invalid:443",
+    "confidence": 0.6,
+    "evidence": [
+      4
+    ],
+    "cwe_candidates": [
+      "CWE-200"
+    ],
+    "assessment": "unlikely",
+    "suggested_severity": "info",
+    "conditions": [
+      "robots.txt asks crawlers to skip 1 path whose name suggests sensitive content."
+    ],
+    "facts": [
+      "Disallow: /admin"
+    ],
+    "step_kinds": [
+      "read_recorded_observation",
+      "owner_confirmation"
+    ]
+  }
+]
