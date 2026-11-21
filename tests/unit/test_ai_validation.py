@@ -236,6 +236,15 @@ def test_a_valid_reply_is_returned_by_id() -> None:
                 "items": [
                     {"id": "condition-0", "text": "A."},
                     {"id": "condition-1", "text": "B."},
+                    {"id": "condition-0", "text": "C."},
+                ]
+            }
+        ),
+        json.dumps(
+            {
+                "items": [
+                    {"id": "condition-0", "text": "A."},
+                    {"id": "condition-1", "text": "B."},
                     {"id": "condition-2", "text": "C."},
                 ]
             }
@@ -252,10 +261,13 @@ def test_a_reply_that_is_not_exactly_the_requested_shape_is_invalid_as_a_whole(r
     assert caught.value.status == "invalid"
 
 
-def test_a_reply_that_is_too_large_is_invalid_without_being_parsed() -> None:
+def test_a_reply_that_is_too_large_is_invalid_even_when_it_is_otherwise_perfect() -> None:
+    assert parse_reply(reply(("condition-0", "a" * 99_000)), request("One.")) == {"condition-0": "a" * 99_000}
     with pytest.raises(ModelUnavailable) as caught:
+        parse_reply(reply(("condition-0", "a" * 100_001)), request("One."))
+    assert caught.value.status == "invalid" and "too large" in caught.value.detail
+    with pytest.raises(ModelUnavailable):
         parse_reply("{" + " " * 200_000 + "}", request("One."))
-    assert caught.value.status == "invalid"
 
 
 def test_the_error_names_the_problem_but_never_echoes_the_reply() -> None:

@@ -1329,7 +1329,8 @@ M.update({
     "ai_check_added_tokens_allowed": [(AIV, "protected_tokens(original) != protected_tokens(reworded)", "not protected_tokens(original) <= protected_tokens(reworded)")],
     "ai_check_dropped_tokens_allowed": [(AIV, "protected_tokens(original) != protected_tokens(reworded)", "not protected_tokens(reworded) <= protected_tokens(original)")],
     "ai_parse_extra_keys_allowed": [(AIV, 'isinstance(data, dict) and set(data) == {"items"}', 'isinstance(data, dict) and "items" in data')],
-    "ai_parse_repeated_id_allowed": [(AIV, "isinstance(text, str)) or item_id in texts:", "isinstance(text, str)):")],
+    # the repeated-id check and the item count both refuse a repeated id (two layers): remove both
+    "ai_parse_repeated_id_allowed": [(AIV, "isinstance(text, str)) or item_id in texts:", "isinstance(text, str)):"), (AIV, " or len(items) != len(request.items):", ":")],
     "ai_parse_wrong_ids_allowed": [(AIV, "if set(texts) != {i.id for i in request.items} or len(items) != len(request.items):", "if False:")],
     "ai_parse_size_unlimited": [(AIV, "if len(raw) > MAX_REPLY_CHARS:", "if False:")],
     "ai_mask_hosts_sent_as_they_are": [(AIV, "masked = [pattern.sub(placeholder, t) for t in masked]", "pass")],
