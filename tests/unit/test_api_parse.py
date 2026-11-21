@@ -120,8 +120,12 @@ def test_more_than_two_hundred_distinct_fields_are_cut_and_the_shape_is_partial(
 
 
 def test_a_huge_document_is_cut_by_the_node_limit_without_running_away() -> None:
-    shape = json_shape(json.dumps([[0] * 60 for _ in range(1500)]))
-    assert shape.status in ("partial", "ok") and len(shape.entries) <= MAX_SHAPE_ENTRIES
+    text = (
+        "{" + ",".join(f'"k{i}":1' for i in range(60_000)) + "}"
+    )  # one map of 60,000 keys: about 600 KB, under any response limit
+    shape = json_shape(text)
+    assert shape.status == "partial" and shape.entries == (("$", "object", None), ("$.{key}", "number", None))
+    assert shape.digest is not None
 
 
 @pytest.mark.parametrize("text", ["", "not json", "{", "{'a': 1}", "<html></html>", '{"a": 1} trailing', "\x00"])

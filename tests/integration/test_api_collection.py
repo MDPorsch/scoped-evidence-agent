@@ -327,9 +327,7 @@ def test_a_report_lists_each_api_request_by_principal_and_path_and_holds_no_valu
     with env[0].begin() as session:
         report = build_report(session, result.run_id, tool_version="0.0.1")
     subjects = [o["subject"] for o in report["observations"]]
-    assert subjects[0] == f"{BASE.replace(':443', '')}:443/openapi.json".replace("https://", "https://") or subjects[
-        0
-    ].endswith("/openapi.json")
+    assert subjects[0] == "https://api.staging.example.invalid:443/openapi.json"
     assert "anonymous GET /v1/projects" in subjects and "tenant-b-user GET /v1/projects/p-2002" in subjects
     assert "anonymous HEAD /v1/health" in subjects
     assert "OPTIONS /v1/projects from https://untrusted.example.invalid" in subjects

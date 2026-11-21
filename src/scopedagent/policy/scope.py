@@ -358,8 +358,6 @@ class AiTarget(_Model):
 # ------------------------------------------------------------------------------------- API targets ----
 def _template_for_model(value: str) -> str:
     """A request path in which a whole segment may be `{name}`. The braces are the only addition to a canonical path."""
-    if not isinstance(value, str):
-        raise ScopeValueError(ErrorCode.SCOPE_006, "a path must be text")
     names: list[str] = []
     for segment in value.split("/")[1:]:
         if "{" in segment or "}" in segment:
