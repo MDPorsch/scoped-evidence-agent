@@ -590,12 +590,15 @@ def test_the_cors_step_renders_from_its_template_for_a_plain_origin_when_the_sco
     )
     assert dropped == []
     (rendered,) = steps
-    assert "OPTIONS" in rendered.action and "https://app.example.invalid:8443" in rendered.action
-    assert (
-        rendered.example_invocation is not None
-        and "--header 'Origin: https://app.example.invalid:8443'" in rendered.example_invocation
+    assert rendered.action == (
+        "Send one OPTIONS request to https://bad.example.invalid/openapi.json with the single Origin header "
+        "https://app.example.invalid:8443, no credentials and no body, and record the access-control headers of the answer."
     )
-    assert "--request OPTIONS" in rendered.example_invocation and not FORBIDDEN.search(rendered.example_invocation)
+    assert rendered.example_invocation == (
+        "curl --silent --show-error --request OPTIONS --header 'Origin: https://app.example.invalid:8443' --dump-header - "
+        "--output /dev/null --max-time 10 --max-redirs 0 https://bad.example.invalid/openapi.json"
+    )
+    assert not FORBIDDEN.search(rendered.example_invocation)
 
 
 @pytest.mark.parametrize("method", ["HEAD", "OPTIONS", "POST"])
