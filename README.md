@@ -85,7 +85,7 @@ commands, a real example and the exit codes are in `docs/cli.md`; the pack forma
 A rule writes every sentence of a draft. If you want them reworded to read more plainly, you can switch on a model that does **only that**:
 
 ```bash
-uv tool install "git+https://github.com/MDPorsch/scoped-evidence-agent#egg=scoped-evidence-agent[ai]"   # adds the Anthropic SDK
+uv tool install "scoped-evidence-agent[ai] @ git+https://github.com/MDPorsch/scoped-evidence-agent"   # adds the Anthropic SDK
 export ANTHROPIC_API_KEY=...                  # the key stays in your environment: it is never stored or printed
 scoped-agent ai enable                        # shows what is sent, asks you to type "enable"
 scoped-agent ai test                          # one small request to check the key and the model
