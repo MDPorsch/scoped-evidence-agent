@@ -7,6 +7,8 @@ asyncio uses one internally to wake its event loop, and a local socket reaches n
 from __future__ import annotations
 
 import socket
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -37,3 +39,13 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", blocked)
     monkeypatch.setattr(socket, "getaddrinfo", blocked)
     monkeypatch.setattr(socket, "gethostbyname", blocked)
+
+
+@pytest.fixture
+def env(tmp_path: Path) -> Iterator[Any]:
+    """(database, artifact store, data dir) on a fresh private store, closed afterwards."""
+    from tests.support import make_env  # noqa: PLC0415
+
+    db, store, data_dir = make_env(tmp_path)
+    yield db, store, data_dir
+    db.close()

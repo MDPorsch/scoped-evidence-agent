@@ -1,0 +1,216 @@
+[
+  {
+    "rule_id": "R-TLS-01",
+    "vulnerability_class": "tls_misconfiguration",
+    "title": "TLS configuration weaknesses on bad.example.invalid:443",
+    "confidence": 0.9,
+    "evidence": [
+      1
+    ],
+    "cwe_candidates": [
+      "CWE-295",
+      "CWE-326",
+      "CWE-327"
+    ],
+    "assessment": "conditional",
+    "suggested_severity": "medium",
+    "conditions": [
+      "The service negotiated TLSv1.0, a protocol version that is deprecated.",
+      "The certificate expired on 2026-01-01T00:00:00Z, before this observation was collected.",
+      "The certificate is self-signed, so it cannot be chained to a trusted authority.",
+      "The certificate's RSA key is 1024 bits, shorter than the 2048 bits generally expected.",
+      "The certificate's signature algorithm uses SHA-1 or MD5, which are considered weak.",
+      "The certificate's names do not cover bad.example.invalid."
+    ],
+    "facts": [],
+    "step_kinds": [
+      "read_recorded_observation",
+      "inspect_certificate_field",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-HDR-01",
+    "vulnerability_class": "missing_security_header",
+    "title": "Missing security headers on bad.example.invalid:443",
+    "confidence": 0.7,
+    "evidence": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "cwe_candidates": [
+      "CWE-319",
+      "CWE-693"
+    ],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "Strict-Transport-Security was absent from all 4 collected responses of this target.",
+      "Content-Security-Policy was absent from all 4 collected responses of this target.",
+      "X-Content-Type-Options was absent from all 4 collected responses of this target."
+    ],
+    "facts": [],
+    "step_kinds": [
+      "read_recorded_observation",
+      "rerequest_listed_path",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-INFO-01",
+    "vulnerability_class": "information_disclosure",
+    "title": "Software version disclosed by bad.example.invalid:443",
+    "confidence": 0.8,
+    "evidence": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "cwe_candidates": [
+      "CWE-200"
+    ],
+    "assessment": "unlikely",
+    "suggested_severity": "info",
+    "conditions": [
+      "Responses name the software and its version in the Server header.",
+      "Responses name the software and its version in the X-Powered-By header."
+    ],
+    "facts": [
+      "Server: Apache/2.4.49 (Unix)",
+      "X-Powered-By: PHP/5.6.40"
+    ],
+    "step_kinds": [
+      "compare_recorded_observations",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-INFO-02",
+    "vulnerability_class": "information_disclosure",
+    "title": "Sensitive-looking paths listed in robots.txt on bad.example.invalid:443",
+    "confidence": 0.6,
+    "evidence": [
+      5
+    ],
+    "cwe_candidates": [
+      "CWE-200"
+    ],
+    "assessment": "unlikely",
+    "suggested_severity": "info",
+    "conditions": [
+      "robots.txt asks crawlers to skip 2 paths whose names suggest sensitive content."
+    ],
+    "facts": [
+      "Disallow: /admin",
+      "Disallow: /backup"
+    ],
+    "step_kinds": [
+      "read_recorded_observation",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-REDIR-01",
+    "vulnerability_class": "insecure_redirect",
+    "title": "Insecure or external redirect on bad.example.invalid:443",
+    "confidence": 0.85,
+    "evidence": [
+      2
+    ],
+    "cwe_candidates": [
+      "CWE-319",
+      "CWE-610"
+    ],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "The response redirects to an address that is not encrypted (http).",
+      "The redirect target's host is not one the scope lists; it was recorded and not followed."
+    ],
+    "facts": [
+      "Location host: localhost"
+    ],
+    "step_kinds": [
+      "read_recorded_observation",
+      "rerequest_listed_path",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-API-01",
+    "vulnerability_class": "exposed_api_documentation",
+    "title": "Exposed API description on bad.example.invalid:443",
+    "confidence": 0.75,
+    "evidence": [
+      4
+    ],
+    "cwe_candidates": [
+      "CWE-200"
+    ],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "The API description at /openapi.json was served to an anonymous request.",
+      "It describes 3 paths.",
+      "It names 1 server host other than this target's own."
+    ],
+    "facts": [
+      "Server host: internal.example.invalid",
+      "Security scheme: apiKeyAuth"
+    ],
+    "step_kinds": [
+      "read_recorded_observation",
+      "rerequest_listed_path",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-CORS-01",
+    "vulnerability_class": "permissive_cors",
+    "title": "Permissive CORS policy on bad.example.invalid:443",
+    "confidence": 0.7,
+    "evidence": [
+      4
+    ],
+    "cwe_candidates": [
+      "CWE-942"
+    ],
+    "assessment": "unlikely",
+    "suggested_severity": "low",
+    "conditions": [
+      "The response sets Access-Control-Allow-Origin to *, so scripts on any website may read it."
+    ],
+    "facts": [],
+    "step_kinds": [
+      "read_recorded_observation",
+      "rerequest_listed_path",
+      "owner_confirmation"
+    ]
+  },
+  {
+    "rule_id": "R-DNS-01",
+    "vulnerability_class": "dns_external_reference",
+    "title": "DNS alias points outside the scope for bad.example.invalid",
+    "confidence": 0.5,
+    "evidence": [
+      0
+    ],
+    "cwe_candidates": [],
+    "assessment": "not_assessed",
+    "suggested_severity": "info",
+    "conditions": [
+      "A CNAME record points to a name outside the hosts the scope lists."
+    ],
+    "facts": [
+      "CNAME: cdn.other.example.invalid"
+    ],
+    "step_kinds": [
+      "read_recorded_observation",
+      "re_resolve_name",
+      "owner_confirmation"
+    ]
+  }
+]

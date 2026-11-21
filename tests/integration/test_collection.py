@@ -113,14 +113,13 @@ def test_the_number_of_redactions_is_reported(env: Any, scope_name: str, expecte
 
 
 @pytest.mark.parametrize(("scope_name", "pack_name"), ALL)
-def test_a_complete_collection_ends_drafted_with_exit_zero_and_a_verified_audit_chain(
+def test_a_complete_collection_ends_drafted_with_a_verified_audit_chain_and_exit_zero_or_three(
     env: Any, scope_name: str, pack_name: str
 ) -> None:
     result = run(env, scope_name)
     db, _, _ = env
-    assert (
-        result.state == "DRAFTED" and result.exit_code is ExitCode.OK and result.coverage.complete and not result.failed
-    )
+    expected = ExitCode.OK if scope_name == "healthy" else ExitCode.REVIEW  # three: complete, with drafts to review
+    assert result.state == "DRAFTED" and result.exit_code is expected and result.coverage.complete and not result.failed
     with db.begin() as session:
         run_row = session.get(Run, result.run_id)
         assert (
@@ -474,7 +473,10 @@ def test_the_poisoned_pack_changes_nothing_but_its_own_observations(env: Any) ->
     result = run(env, "poisoned", loaded=loaded)
     db, _, data_dir = env
     assert (
-        loaded.sha256 == before and result.planned == 5 and result.coverage.complete and result.exit_code is ExitCode.OK
+        loaded.sha256 == before
+        and result.planned == 5
+        and result.coverage.complete
+        and result.exit_code is ExitCode.REVIEW
     )
     with db.begin() as session:
         targets = session.execute(text("SELECT host_canonical FROM targets")).scalars().all()
@@ -496,7 +498,14 @@ def test_the_audit_trail_of_a_collection_holds_only_the_expected_kinds_of_event(
     db, _, _ = env
     with db.begin() as session:
         actions = {e.action for e in session.scalars(select(AuditEvent).where(AuditEvent.run_id == result.run_id))}
-    assert actions == {"run.created", "run.transition", "observation.recorded", "artifact.stored"}
+    assert actions == {
+        "run.created",
+        "run.transition",
+        "observation.recorded",
+        "artifact.stored",
+        "finding.created",
+        "finding.transition",
+    }
 
 
 def test_the_ai_scope_run_uses_only_ai_targets(env: Any) -> None:

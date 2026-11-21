@@ -53,16 +53,19 @@ def run_id_of(output: str) -> str:
 
 
 # ------------------------------------------------------------------------------------------- run ----
-@pytest.mark.parametrize(("name", "redactions"), [("healthy", 0), ("misconfigured", 2), ("poisoned", 1), (AI_PACK, 0)])
-def test_a_complete_offline_run_succeeds_and_reports_its_coverage(data_dir: Path, name: str, redactions: int) -> None:
+@pytest.mark.parametrize(
+    ("name", "redactions", "drafts"), [("healthy", 0, 0), ("misconfigured", 2, 8), ("poisoned", 1, 2), (AI_PACK, 0, 2)]
+)
+def test_a_complete_offline_run_reports_its_coverage_and_its_drafts(
+    data_dir: Path, name: str, redactions: int, drafts: int
+) -> None:
     result = do_run(data_dir, name)
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == (3 if drafts else 0), result.output  # 3: complete, and a person has drafts to review
     out = result.output
     assert "coverage: complete" in out and f"redactions: {redactions}" in out and "state: DRAFTED" in out
+    assert f"findings drafted: {drafts}" in out
     assert "scope sha256:" in out and "not proof of authorization" in out
-    assert (
-        "correlation and findings are not built yet" in out
-    )  # exit 0 means a complete collection, never "no findings"
+    assert "a draft is not a finding" in out and "no draft is not proof that nothing is wrong" in out
 
 
 def test_the_run_reports_planned_and_recorded_counts(data_dir: Path) -> None:
