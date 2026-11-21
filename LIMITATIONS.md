@@ -24,3 +24,18 @@ milestone. Residual risks are listed, not hidden.
   and not a design for many concurrent users.
 * **SE-10 Python 3.13 on macOS (development) and Linux (CI) only.** Windows is not tested; file-permission
   guarantees (`0600`, `0700`) are POSIX behaviour and do not hold the same way there.
+* **SE-11 Only the audit trail and the artifacts are tamper-evident.** Observation and finding rows are protected by constraints
+  and by who may write them, not by a hash. Someone who edits `observations.normalized_json` in the database is not detected by
+  anything in 0.x. The audit chain would show the row was written, not that it was later changed.
+* **SE-12 The audit chain cannot detect the loss of its newest events.** Each event commits to the one before it, so a removed or
+  edited event in the middle breaks a link; removing the last few events leaves nothing after them to notice. Detecting that
+  needs a head hash kept somewhere the database's owner cannot write, which a local single-user tool does not have.
+* **SE-13 The clock is the machine's.** Expiry is checked against the system clock. Anyone who can change the clock can extend a
+  scope. The clock is injected into the code (so tests never depend on the date) but is not an environment variable, so a
+  stray variable cannot change it.
+* **SE-14 Internationalised names are not checked for look-alikes.** A host written as `xn--...` is accepted if it is valid
+  IDNA. The tool does not detect that it looks like another name, so a confusable name that is typed into a scope is the
+  operator's to notice.
+* **SE-15 A purge deletes files before its transaction commits.** If the commit then fails, rows remain whose files are gone and
+  reading them reports a missing artifact (it never returns wrong bytes). The receipt counts what was deleted.
+
