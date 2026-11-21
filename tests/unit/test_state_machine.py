@@ -5,6 +5,7 @@ from __future__ import annotations
 from itertools import product
 
 import pytest
+
 from scopedagent.domain.state_machine import (
     Actor,
     ActorType,

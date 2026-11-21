@@ -9,6 +9,7 @@ import pytest
 import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
+
 from scopedagent.domain.state_machine import (
     Actor,
     ActorType,
@@ -19,7 +20,6 @@ from scopedagent.domain.state_machine import (
 )
 from scopedagent.errors import ScopedAgentError, ScopeError, StateError
 from scopedagent.policy.scope import canonical_host, canonical_path, parse_scope
-
 from tests.support import NOW, dump, scope_dict
 
 pytestmark = pytest.mark.milestone("M1")
@@ -161,7 +161,6 @@ def test_budget_accounting_never_exceeds_the_total_or_goes_negative(
     from scopedagent.domain.models import Run  # noqa: PLC0415
     from scopedagent.errors import BudgetError  # noqa: PLC0415
     from scopedagent.policy.budget import release, reserve  # noqa: PLC0415
-
     from tests.support import run_in_state  # noqa: PLC0415
 
     run_id = run_in_state(shared_db, "COLLECTING")  # a fresh run per example, total_budget 12

@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from scopedagent.errors import ErrorCode, ScopeError
 from scopedagent.policy.scope import PlannedOperation, load_scope, parse_scope
-
 from tests.support import NOW, PACKS, SCOPE_FILES, dump, scope_dict, scope_text
 
 pytestmark = pytest.mark.milestone("M1")
@@ -435,3 +435,29 @@ def test_load_scope_refuses_a_directory_and_a_fifo(tmp_path: Path) -> None:
     os.mkfifo(fifo)  # reading a FIFO would block forever
     with pytest.raises(ScopeError):
         load_scope(fifo, now=NOW)
+
+
+def test_dns_is_planned_at_the_first_scheme_and_port_of_the_first_entry() -> None:
+    data = scope_dict()
+    data["allowed_targets"][0].update(schemes=["http", "https"], ports=[8080], allowed_paths=["/h"])
+    dns = next(op for op in accepted(data).planned if op.kind == "dns_metadata")
+    assert (dns.scheme, dns.port) == ("http", 8080)
+    data["allowed_targets"][0].update(schemes=["https"], ports=[8443, 443])
+    dns = next(op for op in accepted(data).planned if op.kind == "dns_metadata")
+    assert (dns.scheme, dns.port) == ("https", 8443)
+
+
+@pytest.mark.parametrize(
+    ("operations", "kinds"),
+    [
+        (["dns_metadata"], {"dns_metadata"}),
+        (["tls_metadata"], {"tls_metadata"}),
+        (["http_metadata"], {"http_metadata"}),
+        (["dns_metadata", "http_metadata"], {"dns_metadata", "http_metadata"}),
+        (["tls_metadata", "http_metadata"], {"tls_metadata", "http_metadata"}),
+    ],
+)
+def test_the_plan_contains_only_the_allowed_operations(operations: list[str], kinds: set[str]) -> None:
+    data = scope_dict()
+    data["allowed_operations"] = operations
+    assert {op.kind for op in accepted(data).planned} == kinds

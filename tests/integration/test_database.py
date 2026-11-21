@@ -11,13 +11,13 @@ from typing import Any
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from scopedagent.domain.models import Base
-from scopedagent.errors import ErrorCode, StoreError
-from scopedagent.storage.database import HEAD_REVISION, DataDir, open_database, upgrade_database
 from sqlalchemy import text
 from sqlalchemy.exc import DatabaseError, OperationalError
 
-from tests.support import seed, sql_insert, stamp
+from scopedagent.domain.models import Base
+from scopedagent.errors import ErrorCode, StoreError
+from scopedagent.storage.database import HEAD_REVISION, DataDir, open_database, upgrade_database
+from tests.support import raw_connection, seed, sql_insert, stamp
 
 pytestmark = pytest.mark.milestone("M1")
 
@@ -114,14 +114,14 @@ def test_open_refuses_an_empty_sqlite_file_and_does_not_migrate_it(data_dir: Dat
     with pytest.raises(StoreError) as caught:
         open_database(data_dir)
     assert caught.value.code is ErrorCode.STORE_002
-    with sqlite3.connect(data_dir.db_path) as raw:
+    with raw_connection(data_dir.db_path) as raw:
         assert raw.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
 
 
 @pytest.mark.parametrize("revision", ["0000", "ffff", "9999", "", "0001; DROP TABLE runs"])
 def test_open_refuses_a_schema_revision_it_does_not_know(data_dir: DataDir, revision: str) -> None:
     upgrade_database(data_dir)
-    with sqlite3.connect(data_dir.db_path) as raw:
+    with raw_connection(data_dir.db_path) as raw:
         raw.execute("UPDATE alembic_version SET version_num = ?", (revision,))
     with pytest.raises(StoreError) as caught:
         open_database(data_dir)
@@ -557,3 +557,182 @@ def test_audit_constraints(db: Any, bad: dict[str, Any]) -> None:
 def test_audit_events_may_have_no_run_for_cross_run_receipts(db: Any) -> None:
     with db.begin() as session:
         sql_insert(session, "audit_events", **audit_row(run_id=None, action="artifacts.purge"))
+
+
+# ------------------------------------------------------------ checks, uniques and triggers match the models ----
+def _check_bodies(sql: str) -> dict[str, str]:
+    """Every `CONSTRAINT name CHECK (body)` in a CREATE TABLE statement, with the parentheses matched properly."""
+    found: dict[str, str] = {}
+    marker = " CHECK ("
+    position = 0
+    while (start := sql.find("CONSTRAINT ", position)) != -1:
+        name_end = sql.index(" ", start + len("CONSTRAINT "))
+        name = sql[start + len("CONSTRAINT ") : name_end]
+        position = name_end
+        if not sql.startswith(marker, name_end):
+            continue
+        depth, index = 1, name_end + len(marker)
+        while depth:
+            depth += {"(": 1, ")": -1}.get(sql[index], 0)
+            index += 1
+        found[name] = " ".join(sql[name_end + len(marker) : index - 1].split())
+    return found
+
+
+def _table_sql(connection: sqlite3.Connection) -> dict[str, str]:
+    rows = connection.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    return {name: sql for name, sql in rows if name != "alembic_version"}
+
+
+def test_the_migrated_check_constraints_are_exactly_the_models(data_dir: DataDir, tmp_path: Path) -> None:
+    from sqlalchemy import create_engine  # noqa: PLC0415
+
+    upgrade_database(data_dir)
+    fresh = tmp_path / "from-models.sqlite"
+    engine = create_engine(f"sqlite:///{fresh}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    with raw_connection(data_dir.db_path) as migrated, raw_connection(fresh) as modelled:
+        migrated_sql, modelled_sql = _table_sql(migrated), _table_sql(modelled)
+    assert migrated_sql.keys() == modelled_sql.keys()
+    total = 0
+    for table in migrated_sql:
+        from_migration, from_models = _check_bodies(migrated_sql[table]), _check_bodies(modelled_sql[table])
+        assert from_migration == from_models, table
+        total += len(from_migration)
+    # engagements 2, targets 3, runs 6, observations 5, artifacts 3, finding_drafts 4, audit_events 4: the parser found them all
+    assert total == 27
+
+
+def test_the_migrated_unique_constraints_and_foreign_keys_are_exactly_the_models(
+    data_dir: DataDir, tmp_path: Path
+) -> None:
+    from sqlalchemy import create_engine  # noqa: PLC0415
+
+    upgrade_database(data_dir)
+    fresh = tmp_path / "from-models.sqlite"
+    engine = create_engine(f"sqlite:///{fresh}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    def shape(path: Path) -> dict[str, Any]:
+        with raw_connection(path) as connection:
+            out: dict[str, Any] = {}
+            for (table,) in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'alembic_version' AND name NOT LIKE 'sqlite_%'"
+            ):
+                uniques = sorted(
+                    tuple(row[2] for row in connection.execute(f"PRAGMA index_info({index[1]})"))
+                    for index in connection.execute(f"PRAGMA index_list({table})")
+                    if index[2]
+                )
+                foreign = sorted(
+                    (row[2], row[3], row[4]) for row in connection.execute(f"PRAGMA foreign_key_list({table})")
+                )
+                columns = [
+                    (row[1], row[2], row[3], row[5]) for row in connection.execute(f"PRAGMA table_info({table})")
+                ]
+                out[table] = {"unique": uniques, "foreign": foreign, "columns": columns}
+            return out
+
+    assert shape(data_dir.db_path) == shape(fresh)
+
+
+def test_the_triggers_exist_and_there_are_no_others(db: Any) -> None:
+    with db.begin() as session:
+        names = set(session.execute(text("SELECT name FROM sqlite_master WHERE type = 'trigger'")).scalars())
+    assert names == {"audit_events_no_update", "audit_events_no_delete", "observations_target_in_engagement"}
+
+
+# ------------------------------------------------------------------------- refusals worth proving ----
+def test_the_key_file_lives_beside_the_database(data_dir: DataDir) -> None:
+    assert data_dir.key_path == data_dir.root / "hmac.key"
+
+
+def test_check_private_names_what_is_wrong(tmp_path: Path) -> None:
+    from scopedagent.storage.database import check_private  # noqa: PLC0415
+
+    with pytest.raises(StoreError) as caught:
+        check_private(tmp_path / "missing", kind="database file")
+    assert caught.value.code is ErrorCode.STORE_001
+    file_where_a_directory_belongs = tmp_path / "plain"
+    file_where_a_directory_belongs.write_text("x")
+    file_where_a_directory_belongs.chmod(0o600)
+    with pytest.raises(StoreError) as caught:
+        check_private(file_where_a_directory_belongs, kind="data directory")
+    assert caught.value.code is ErrorCode.STORE_003
+    with pytest.raises(StoreError) as caught:
+        check_private(tmp_path, kind="database file")  # a directory where a file belongs
+    assert caught.value.code is ErrorCode.STORE_003
+
+
+def test_a_store_owned_by_someone_else_is_refused(data_dir: DataDir, monkeypatch: pytest.MonkeyPatch) -> None:
+    upgrade_database(data_dir)
+    monkeypatch.setattr(os, "getuid", lambda: os.stat(data_dir.root).st_uid + 1)
+    with pytest.raises(StoreError) as caught:
+        open_database(data_dir)
+    assert caught.value.code is ErrorCode.STORE_003 and "another user" in str(caught.value)
+
+
+def test_two_version_rows_are_not_a_known_revision(data_dir: DataDir) -> None:
+    upgrade_database(data_dir)
+    with raw_connection(data_dir.db_path) as raw:
+        raw.execute("INSERT INTO alembic_version (version_num) VALUES ('0002')")
+    with pytest.raises(StoreError) as caught:
+        open_database(data_dir)
+    assert caught.value.code is ErrorCode.STORE_002
+
+
+def test_an_existing_private_directory_with_no_database_is_store_001(data_dir: DataDir) -> None:
+    data_dir.root.mkdir(mode=0o700)
+    with pytest.raises(StoreError) as caught:
+        open_database(data_dir)
+    assert caught.value.code is ErrorCode.STORE_001 and "db upgrade" in str(caught.value)
+
+
+def test_permissions_do_not_depend_on_a_restrictive_umask(data_dir: DataDir) -> None:
+    previous = os.umask(0o277)  # would turn mkdir(0o700) into 0o500 and open(0o600) into 0o400
+    try:
+        upgrade_database(data_dir)
+    finally:
+        os.umask(previous)
+    assert mode(data_dir.root) == 0o700 and mode(data_dir.db_path) == 0o600
+
+
+def test_permissions_do_not_depend_on_a_permissive_umask(data_dir: DataDir) -> None:
+    previous = os.umask(0)
+    try:
+        upgrade_database(data_dir)
+    finally:
+        os.umask(previous)
+    assert mode(data_dir.root) == 0o700 and mode(data_dir.db_path) == 0o600
+
+
+def test_a_loose_existing_database_is_refused_before_anything_is_migrated(data_dir: DataDir) -> None:
+    data_dir.root.mkdir(mode=0o700)
+    data_dir.db_path.write_bytes(b"")
+    os.chmod(data_dir.db_path, 0o644)
+    with pytest.raises(StoreError) as caught:
+        upgrade_database(data_dir)
+    assert caught.value.code is ErrorCode.STORE_003
+    with raw_connection(data_dir.db_path) as raw:  # the refusal came first: the file was not touched
+        assert raw.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
+
+
+def test_the_busy_timeout_is_the_one_requested(data_dir: DataDir) -> None:
+    import time  # noqa: PLC0415
+
+    upgrade_database(data_dir)
+    first, second = open_database(data_dir), open_database(data_dir, busy_timeout_ms=100)
+    try:
+        with first.begin() as holder:
+            holder.execute(text("SELECT 1"))
+            started = time.monotonic()
+            with pytest.raises(OperationalError), second.begin() as session:
+                session.execute(text("SELECT 1"))
+            assert time.monotonic() - started < 3  # a fixed 5 s timeout would take longer
+    finally:
+        first.close()
+        second.close()

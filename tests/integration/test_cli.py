@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from scopedagent.domain.state_machine import Actor, ActorType, RunState
-from scopedagent.policy.scope import parse_scope
-from scopedagent.storage.repositories import create_run, register_engagement, transition_run
 from typer.testing import CliRunner
 
 from scopedagent.cli import AppContext, app
-from tests.support import NOW, SCOPE_FILES, dump, healthy_loaded, scope_dict, scope_text
+from scopedagent.domain.state_machine import Actor, ActorType, RunState
+from scopedagent.policy.scope import parse_scope
+from scopedagent.storage.repositories import create_run, register_engagement, transition_run
+from tests.support import NOW, SCOPE_FILES, dump, healthy_loaded, raw_connection, scope_dict, scope_text
 
 pytestmark = pytest.mark.milestone("M1")
 
@@ -193,7 +193,6 @@ def test_audit_verify_reports_an_intact_chain(data_dir: Path) -> None:
 
 
 def test_audit_verify_exits_1_on_a_broken_chain_and_names_the_event(data_dir: Path) -> None:
-    import sqlite3  # noqa: PLC0415
 
     from scopedagent.storage.database import DataDir, open_database  # noqa: PLC0415
 
@@ -204,7 +203,7 @@ def test_audit_verify_exits_1_on_a_broken_chain_and_names_the_event(data_dir: Pa
         for step in (RunState.SCOPE_VALIDATED, RunState.QUEUED):
             transition_run(session, run_id, step, actor=Actor(ActorType.WORKER, "w"), now=NOW)
     database.close()
-    with sqlite3.connect(data_dir / "evidence.sqlite") as raw:
+    with raw_connection(data_dir / "evidence.sqlite") as raw:
         raw.execute("DROP TRIGGER audit_events_no_update")
         raw.execute("UPDATE audit_events SET reason = 'edited' WHERE id = 2")
     result = invoke("audit", "verify", run_id, "--data-dir", str(data_dir))
@@ -231,3 +230,45 @@ def test_the_default_context_uses_the_real_clock_and_the_os_user() -> None:
     default = AppContext()
     assert abs((default.clock() - datetime.now(UTC)).total_seconds()) < 5 and default.clock().tzinfo is not None
     assert isinstance(default.user(), str) and default.user()
+
+
+def test_the_default_data_directory_follows_xdg_data_home_at_run_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    result = invoke("db", "upgrade")
+    assert result.exit_code == 0 and (tmp_path / "xdg" / "scopedagent" / "evidence.sqlite").exists()
+    assert str(tmp_path / "xdg" / "scopedagent") in result.output
+
+
+def test_without_xdg_the_default_is_under_the_home_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from scopedagent.cli import default_data_dir  # noqa: PLC0415
+
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert default_data_dir() == tmp_path / ".local" / "share" / "scopedagent"
+
+
+def test_no_warning_when_the_plan_exactly_fits_the_budget(tmp_path: Path) -> None:
+    data = scope_dict()
+    data["max_requests"] = 5  # the healthy plan is exactly 5 operations
+    path = tmp_path / "s.yaml"
+    path.write_text(dump(data), encoding="utf-8")
+    result = invoke("scope", "validate", str(path))
+    assert result.exit_code == 0 and "warning" not in result.output
+    data["max_requests"] = 4
+    path.write_text(dump(data), encoding="utf-8")
+    assert "warning" in invoke("scope", "validate", str(path)).output
+
+
+def test_timestamps_are_printed_in_utc_whatever_zone_they_carry() -> None:
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+    from scopedagent.cli import _stamp  # noqa: PLC0415
+
+    moment = datetime(2026, 11, 20, 14, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert _stamp(moment) == "2026-11-20T12:00:00Z"
+
+
+def test_db_upgrade_says_the_database_is_ready(data_dir: Path) -> None:
+    assert "database ready" in invoke("db", "upgrade", "--data-dir", str(data_dir)).output

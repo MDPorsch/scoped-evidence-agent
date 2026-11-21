@@ -6,10 +6,10 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+
 from scopedagent.errors import ErrorCode, PolicyError, ScopeError
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE, check_run_allowed
 from scopedagent.policy.scope import parse_scope
-
 from tests.support import NOW, dump, scope_dict, scope_text
 
 pytestmark = pytest.mark.milestone("M1")

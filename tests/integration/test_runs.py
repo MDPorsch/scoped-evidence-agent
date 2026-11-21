@@ -6,14 +6,14 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from sqlalchemy import select, text
+
 from scopedagent.domain.models import AuditEvent, Engagement, Run, Target
 from scopedagent.domain.state_machine import Actor, ActorType, RunState
 from scopedagent.errors import ErrorCode, PolicyError, StateError
 from scopedagent.policy.scope import parse_scope
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.repositories import create_run, list_runs, register_engagement, retry_run, transition_run
-from sqlalchemy import select, text
-
 from tests.support import NOW, dump, healthy_loaded, make_database, run_in_state, scope_dict, scope_text
 
 pytestmark = pytest.mark.milestone("M1")
@@ -333,3 +333,69 @@ def test_the_expiry_is_rechecked_when_a_run_is_created(db: Any) -> None:
         engagement = register_engagement(session, loaded, now=NOW)
     with pytest.raises(Exception, match="SCOPE-004"), db.begin() as session:
         create_run(session, engagement, actor=HUMAN, now=loaded.config.expires_at)
+
+
+def test_a_worker_cannot_start_a_run_and_the_attempt_is_audited(db: Any) -> None:
+    with db.begin() as session:
+        engagement = register_engagement(session, healthy_loaded(), now=NOW)
+    with pytest.raises(StateError) as caught, db.begin() as session:
+        create_run(session, engagement, actor=WORKER, now=NOW)
+    assert caught.value.code is ErrorCode.STATE_003
+    with db.begin() as session:
+        assert session.execute(text("SELECT count(*) FROM runs")).scalar() == 0
+        denied = session.scalars(select(AuditEvent).where(AuditEvent.action == "run.create")).all()
+        assert [(e.decision, e.run_id, e.actor_type) for e in denied] == [("denied", None, "worker")]
+        verify_chain(session, None)
+
+
+def test_retrying_an_unknown_run_is_an_error(db: Any) -> None:
+    with pytest.raises(StateError) as caught, db.begin() as session:
+        retry_run(session, "no-such-run", actor=HUMAN, now=NOW)
+    assert caught.value.code is ErrorCode.STATE_001
+
+
+def test_a_concurrent_change_between_the_check_and_the_update_is_caught(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scopedagent.storage.repositories as module  # noqa: PLC0415
+
+    run_id = run_in_state(db, "CREATED")
+    real_check = module.check_run_transition
+
+    def check_then_race(src: Any, dst: Any, actor: Any) -> None:
+        real_check(src, dst, actor)
+        # another writer sneaks in between the check and the conditional update
+        module_session.execute(text("UPDATE runs SET state = 'QUEUED' WHERE id = :id"), {"id": run_id})
+
+    monkeypatch.setattr(module, "check_run_transition", check_then_race)
+    with pytest.raises(StateError) as caught, db.begin() as session:
+        module_session = session
+        transition_run(session, run_id, RunState.SCOPE_VALIDATED, actor=WORKER, now=NOW)
+    assert caught.value.code is ErrorCode.STATE_002
+
+
+def test_a_retried_run_keeps_the_time_it_failed_not_the_time_it_was_retried(db: Any) -> None:
+    old_id = run_in_state(db, "COLLECTING")
+    with db.begin() as session:
+        transition_run(session, old_id, RunState.FAILED, actor=WORKER, now=NOW, error_code="infra")
+    with db.begin() as session:
+        retry_run(session, old_id, actor=HUMAN, now=NOW + timedelta(hours=2))
+    with db.begin() as session:
+        run = session.get(Run, old_id)
+        assert run is not None and run.state == "RETRIED" and run.ended_at == NOW
+
+
+def test_a_retry_starts_with_nothing_spent_even_if_the_failed_run_spent_some(db: Any) -> None:
+    from scopedagent.policy.budget import reserve  # noqa: PLC0415
+
+    old_id = run_in_state(db, "COLLECTING")
+    with db.begin() as session:
+        reserve(session, old_id, units=7)
+    with db.begin() as session:
+        transition_run(session, old_id, RunState.FAILED, actor=WORKER, now=NOW, error_code="infra")
+    with db.begin() as session:
+        fresh_id = retry_run(session, old_id, actor=HUMAN, now=NOW).id
+    with db.begin() as session:
+        old, fresh = session.get(Run, old_id), session.get(Run, fresh_id)
+        assert old is not None and fresh is not None
+        assert (old.budget_spent, fresh.budget_spent, fresh.total_budget) == (7, 0, old.total_budget)

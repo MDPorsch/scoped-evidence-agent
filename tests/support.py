@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -140,3 +142,16 @@ def run_in_state(db: Any, state: str, *, scope: str = "healthy") -> str:
         if step is target:
             break
     return run_id
+
+
+@contextmanager
+def raw_connection(path: Path) -> Iterator[Any]:
+    """A plain sqlite3 connection that commits on success and is always closed (`with sqlite3.connect()` never closes)."""
+    import sqlite3  # noqa: PLC0415
+
+    connection = sqlite3.connect(path)
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()

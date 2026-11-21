@@ -8,13 +8,13 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from sqlalchemy import text
+
 from scopedagent.domain.models import AuditEvent
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import AuditError, ErrorCode
 from scopedagent.storage.audit import GENESIS_HASH, append_event, verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
-from sqlalchemy import text
-
 from tests.support import NOW, seed
 
 pytestmark = pytest.mark.milestone("M1")

@@ -10,15 +10,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import select, text
+from sqlalchemy.exc import DatabaseError
+
 from scopedagent.domain.models import Artifact, AuditEvent
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, StateError, StoreError
 from scopedagent.storage.artifacts import ArtifactStore
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
-from sqlalchemy import select, text
-from sqlalchemy.exc import DatabaseError
-
 from tests.support import NOW, seed, sql_insert, stamp
 
 pytestmark = pytest.mark.milestone("M1")
@@ -185,8 +185,9 @@ def test_a_symlinked_prefix_directory_is_refused(env: Any, tmp_path: Path) -> No
 
 def test_a_planted_symlink_in_place_of_the_file_is_refused(env: Any, tmp_path: Path) -> None:
     _, _, data_dir = env
+    data_dir.artifacts_dir.mkdir(mode=0o700)  # mkdir(parents=True) would give the parent the default mode
     prefix = data_dir.artifacts_dir / SHA[:2]
-    prefix.mkdir(parents=True, mode=0o700)
+    prefix.mkdir(mode=0o700)
     target = tmp_path / "victim"
     target.write_bytes(b"do not touch")
     (prefix / SHA).symlink_to(target)
@@ -387,3 +388,35 @@ def test_a_file_that_is_already_gone_is_not_an_error_for_purge(env: Any) -> None
     store.path_for(SHA).unlink()
     receipt = purge(env, NOW + timedelta(days=30))
     assert (receipt.rows_deleted, receipt.files_deleted) == (1, 0)
+
+
+def test_an_unreadable_stored_file_is_a_store_error_not_a_crash(env: Any) -> None:
+    _, store, _ = env
+    put(env)
+    path = store.path_for(SHA)
+    path.chmod(0)
+    try:
+        with pytest.raises(StoreError) as caught:
+            put(env)
+        assert caught.value.code is ErrorCode.STORE_004
+    finally:
+        path.chmod(0o600)
+
+
+def test_purge_needs_a_timezone_aware_cut_off(env: Any) -> None:
+    from datetime import datetime  # noqa: PLC0415
+
+    db, store, _ = env
+    with pytest.raises(ValueError, match="timezone-aware"), db.begin() as session:
+        store.purge(session, before=datetime(2026, 12, 1), now=NOW, actor=HUMAN)
+
+
+def test_storing_and_purging_are_allowed_events_with_the_actor_recorded(env: Any) -> None:
+    put(env, retention_days=1)
+    purge(env, NOW + timedelta(days=30))
+    db, _, _ = env
+    with db.begin() as session:
+        stored = session.scalars(select(AuditEvent).where(AuditEvent.action == "artifact.stored")).one()
+        purged = session.scalars(select(AuditEvent).where(AuditEvent.action == "artifacts.purge")).one()
+        assert (stored.decision, stored.actor_type) == ("allowed", "worker")
+        assert (purged.decision, purged.actor_type) == ("allowed", "human")

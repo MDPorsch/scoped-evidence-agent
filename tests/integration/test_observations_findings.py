@@ -7,6 +7,9 @@ import json
 from typing import Any
 
 import pytest
+from sqlalchemy import select, text
+from sqlalchemy.exc import DatabaseError
+
 from scopedagent.domain.models import AuditEvent, FindingDraft, FindingEvidence, Observation, Target
 from scopedagent.domain.schemas import FindingDraftCreate, ObservationEnvelope
 from scopedagent.domain.state_machine import Actor, ActorType, FindingStatus, RunState
@@ -20,9 +23,6 @@ from scopedagent.storage.repositories import (
     transition_finding,
     transition_run,
 )
-from sqlalchemy import select, text
-from sqlalchemy.exc import DatabaseError
-
 from tests.support import NOW, dump, golden, make_database, run_in_state, scope_dict
 
 pytestmark = pytest.mark.milestone("M1")
@@ -547,8 +547,96 @@ def test_actors_are_attributed_in_the_finding_row(db: Any) -> None:
     with db.begin() as session:
         row = session.get(FindingDraft, finding_id)
         assert row is not None and row.reviewer_id is None  # a worker's step is not a review
-    to_validated(db, finding_id)
+    with db.begin() as session:
+        transition_finding(
+            session, finding_id, FindingStatus.VALIDATED, actor=HUMAN, now=NOW, reason="reproduced from the headers"
+        )
     with db.begin() as session:
         row = session.get(FindingDraft, finding_id)
         assert row is not None and row.reviewer_id == "alice"
     assert run_id
+
+
+def test_an_observation_that_names_a_different_target_than_its_row_is_refused(db: Any) -> None:
+    run_id = run_in_state(db, "COLLECTING")
+    other = copy.deepcopy(golden("healthy")[0])
+    other["target"]["port"] = 8443  # the row says 443
+    with pytest.raises(PolicyError) as caught, db.begin() as session:
+        record_observation(
+            session,
+            run_id=run_id,
+            target_id=target_id(db, run_id),
+            envelope=ObservationEnvelope.model_validate(other),
+            source_hash=SOURCE,
+            collected_at=NOW,
+            actor=WORKER,
+        )
+    assert caught.value.code is ErrorCode.POLICY_002
+    with db.begin() as session:
+        assert session.execute(text("SELECT count(*) FROM observations")).scalar() == 0
+        assert [
+            e.decision for e in session.scalars(select(AuditEvent).where(AuditEvent.action == "observation.record"))
+        ] == ["denied"]
+
+
+def test_a_draft_for_an_unknown_run_is_an_error(db: Any) -> None:
+    with pytest.raises(StateError) as caught, db.begin() as session:
+        create_finding_draft(session, run_id="nope", draft=draft_input(), observation_ids=["x"], actor=WORKER, now=NOW)
+    assert caught.value.code is ErrorCode.STATE_001
+
+
+def test_a_concurrent_change_to_a_finding_between_the_check_and_the_update_is_caught(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scopedagent.storage.repositories as module  # noqa: PLC0415
+
+    _, finding_id = make_draft(db)
+    real_check = module.check_finding_transition
+
+    def check_then_race(*args: Any, **kwargs: Any) -> None:
+        real_check(*args, **kwargs)
+        holder["session"].execute(text("UPDATE finding_drafts SET revision = revision + 1"))
+
+    holder: dict[str, Any] = {}
+    monkeypatch.setattr(module, "check_finding_transition", check_then_race)
+    with pytest.raises(StateError) as caught, db.begin() as session:
+        holder["session"] = session
+        transition_finding(session, finding_id, FindingStatus.NEEDS_VALIDATION, actor=WORKER, now=NOW)
+    assert caught.value.code is ErrorCode.STATE_002
+
+
+def test_the_error_status_of_an_observation_is_stored_as_given(db: Any) -> None:
+    run_id = run_in_state(db, "COLLECTING")
+    failed = copy.deepcopy(golden("healthy")[2])
+    failed["error_status"] = "timeout"
+    failed["payload"].update(http_status=None, headers={}, redirect_location=None, body=None)
+    with db.begin() as session:
+        observation, _ = record_observation(
+            session,
+            run_id=run_id,
+            target_id=target_id(db, run_id),
+            envelope=ObservationEnvelope.model_validate(failed),
+            source_hash=SOURCE,
+            collected_at=NOW,
+            actor=WORKER,
+        )
+        assert observation.error_status == "timeout"
+    with db.begin() as session:
+        assert session.execute(text("SELECT error_status FROM observations")).scalar() == "timeout"
+
+
+def test_the_stored_payload_is_canonical_json(db: Any) -> None:
+    run_id = run_in_state(db, "COLLECTING")
+    observation, _ = record(db, run_id, 2)
+    expected = json.dumps(golden("healthy")[2]["payload"], sort_keys=True, separators=(",", ":"))
+    with db.begin() as session:
+        assert session.get(Observation, observation.id).normalized_json == expected  # type: ignore[union-attr]
+
+
+def test_a_recorded_observation_is_an_allowed_audit_event_and_a_replay_is_a_recorded_one(db: Any) -> None:
+    run_id = run_in_state(db, "COLLECTING")
+    record(db, run_id, 0)
+    record(db, run_id, 0)
+    with db.begin() as session:
+        events = {e.action: e.decision for e in session.scalars(select(AuditEvent).where(AuditEvent.run_id == run_id))}
+    assert events["observation.recorded"] == "allowed" and events["observation.replayed"] == "recorded"

@@ -25,21 +25,20 @@ def test_the_guard_really_blocks_sockets() -> None:
             call()
 
 
-def test_importing_the_package_loads_no_network_library() -> None:
+def test_importing_the_package_loads_no_network_client_library() -> None:
     code = textwrap.dedent(
         """
         import sys
         import scopedagent, scopedagent.cli, scopedagent.policy.scope, scopedagent.storage.repositories, scopedagent.storage.artifacts
-        banned = {"httpx", "requests", "urllib3", "aiohttp", "http.client", "urllib.request", "ssl", "dns", "socket"}
-        loaded = sorted(m for m in banned if m in sys.modules)
-        print(",".join(loaded))
+        clients = {"httpx", "requests", "urllib3", "aiohttp", "http.client", "urllib.request", "dns"}
+        print(",".join(sorted(m for m in clients if m in sys.modules)))
         """
     )
     result = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True, timeout=60)
-    # `socket` is imported by the standard library itself (sqlite3 does not need it, but asyncio and others may); what matters is
-    # that no client library and no TLS stack is pulled in by this package.
-    loaded = set(filter(None, result.stdout.strip().split(",")))
-    assert loaded <= {"socket"}, loaded
+    # `socket` and `ssl` are deliberately not on this list: the standard library's own asyncio imports them when SQLAlchemy is
+    # loaded. What this proves is that no HTTP or DNS client library is pulled in. That our own code imports no network module is
+    # checked by test_no_source_file_imports_a_network_module, and that nothing can open a socket by the autouse guard.
+    assert result.stdout.strip() == ""
 
 
 def test_the_project_declares_no_network_client_dependency_yet() -> None:

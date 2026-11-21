@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from scopedagent.domain.schemas import ObservationEnvelope
 
+from scopedagent.domain.schemas import ObservationEnvelope
 from tests.support import PACKS, golden
 
 pytestmark = pytest.mark.milestone("M1")
@@ -194,3 +194,92 @@ def test_the_models_are_immutable() -> None:
     envelope = ObservationEnvelope.model_validate(json.loads(json.dumps(http_item())))
     with pytest.raises(ValidationError):
         envelope.error_status = "ok"  # type: ignore[assignment]
+
+
+@pytest.mark.parametrize(
+    "bad", ["a" * 64 + "\n", "\n" + "a" * 64, "a" * 64 + " ", "A" * 64, "a" * 63, "a" * 65, "g" * 64]
+)
+def test_a_sha256_is_exactly_64_lower_case_hex_digits_with_nothing_around_it(bad: str) -> None:
+    item = http_item()
+    item["payload"]["body"]["artifact_sha256"] = bad
+    refuses(item)
+    cert = first("healthy", "tls_metadata")
+    cert["payload"]["certificate"]["sha256_fingerprint"] = bad
+    refuses(cert)
+
+
+def test_a_body_may_have_no_parsed_document() -> None:
+    item = http_item()
+    item["payload"]["body"]["parsed"] = None
+    assert ObservationEnvelope.model_validate(item).model_dump(mode="json")["payload"]["body"]["parsed"] is None
+
+
+def test_an_unknown_observation_type_is_refused() -> None:
+    item = first("healthy", "dns_metadata")
+    item["observation_type"] = "port_scan"
+    refuses(item)
+
+
+def test_a_payload_object_of_the_wrong_kind_is_refused_even_when_built_directly() -> None:
+    from scopedagent.domain.schemas import DnsPayload, HttpPayload  # noqa: PLC0415
+
+    http = HttpPayload.model_validate(first("healthy", "http_metadata")["payload"])
+    item = first("healthy", "dns_metadata")
+    item["payload"] = http
+    refuses(item)
+    dns = DnsPayload.model_validate(first("healthy", "dns_metadata")["payload"])
+    item = first("healthy", "http_metadata")
+    item["payload"] = dns
+    refuses(item)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda i: i["payload"].update(port="443"),
+        lambda i: i["payload"].update(http_status="200"),
+        lambda i: i["payload"].update(headers={"x": "not-a-list"}),
+        lambda i: i["payload"]["body"].update(size_bytes="10"),
+        lambda i: i["payload"]["body"].update(truncated="false"),
+        lambda i: i["target"].update(port="443"),
+    ],
+)
+def test_values_of_the_wrong_type_are_refused_not_coerced(mutate: Any) -> None:
+    item = http_item()
+    mutate(item)
+    refuses(item)
+
+
+def test_the_models_do_not_coerce_numbers_in_other_payloads_either() -> None:
+    tls = first("healthy", "tls_metadata")
+    tls["payload"]["port"] = "443"
+    refuses(tls)
+    cert = first("healthy", "tls_metadata")
+    cert["payload"]["certificate"]["self_signed"] = "false"
+    refuses(cert)
+
+
+def test_a_parsed_document_is_bounded_inside_lists_too() -> None:
+    deep_in_a_list = {"a": [{"b": {"c": {"d": {"e": 1}}}}]}
+    wide_in_a_list = {"a": [{f"k{i}": 1 for i in range(65)}]}
+    for parsed in (deep_in_a_list, wide_in_a_list):
+        item = http_item()
+        item["payload"]["body"]["parsed"] = parsed
+        refuses(item)
+
+
+@pytest.mark.parametrize("title", ["abcd", "abc", "", "x" * 161])
+def test_a_draft_title_must_be_5_to_160_characters(title: str) -> None:
+    from scopedagent.domain.schemas import FindingDraftCreate  # noqa: PLC0415
+
+    with pytest.raises(ValidationError):
+        FindingDraftCreate.model_validate({"title": title, "category": "headers", "confidence": 0.5})
+    FindingDraftCreate.model_validate({"title": "abcde", "category": "headers", "confidence": 0.5})
+    FindingDraftCreate.model_validate({"title": "x" * 160, "category": "headers", "confidence": 0.5})
+
+
+def test_a_draft_input_does_not_coerce_its_numbers() -> None:
+    from scopedagent.domain.schemas import FindingDraftCreate  # noqa: PLC0415
+
+    with pytest.raises(ValidationError):
+        FindingDraftCreate.model_validate({"title": "Missing headers", "category": "headers", "confidence": "0.5"})

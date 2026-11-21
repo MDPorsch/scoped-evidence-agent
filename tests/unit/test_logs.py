@@ -7,6 +7,7 @@ import json
 import logging
 
 import pytest
+
 from scopedagent.logs import JsonFormatter, configure_logging, safe_text
 
 pytestmark = pytest.mark.milestone("M1")
@@ -65,4 +66,49 @@ def test_configure_logging_sets_a_single_json_handler_and_is_idempotent() -> Non
         and logger.level == logging.WARNING
     )
     with pytest.raises(ValueError, match="level"):
+        configure_logging("LOUD")
+
+
+def test_numbers_booleans_and_none_are_logged_as_themselves_not_as_text() -> None:
+    record = json.loads(emit("event", attempt=3, ratio=0.5, ok=True, nothing=None, text="x"))
+    assert record["attempt"] == 3 and record["ratio"] == 0.5 and record["ok"] is True and record["nothing"] is None
+    assert record["text"] == "x"
+
+
+def test_configure_logging_leaves_foreign_handlers_alone() -> None:
+    logger = logging.getLogger("scopedagent")
+    foreign = logging.NullHandler()
+    logger.addHandler(foreign)
+    try:
+        configure_logging("INFO")
+        assert foreign in logger.handlers
+        assert sum(isinstance(h.formatter, JsonFormatter) for h in logger.handlers) == 1
+    finally:
+        logger.removeHandler(foreign)
+
+
+@pytest.mark.parametrize("name", ["set-cookie", "x-api-key", "x-auth-token", "Proxy-Authorization", "X-Secret-Value"])
+def test_hyphenated_header_style_names_are_redacted_too(name: str) -> None:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    logger = logging.getLogger("scopedagent.hyphen")
+    logger.handlers, logger.propagate = [handler], False
+    logger.warning("event", extra={name: "SYNTHETIC-SECRET-0001"})
+    assert "SYNTHETIC-SECRET-0001" not in stream.getvalue() and "[REDACTED]" in stream.getvalue()
+
+
+def test_text_extras_are_cleaned_like_messages() -> None:
+    record = json.loads(emit("event", detail="a\nb" + chr(0x202E) + chr(0) + "z" * 1000))
+    assert "\n" not in record["detail"] and chr(0x202E) not in record["detail"] and chr(0) not in record["detail"]
+    assert len(record["detail"]) <= 500
+
+
+def test_our_logger_does_not_pass_records_to_the_root_logger() -> None:
+    configure_logging("INFO")
+    assert logging.getLogger("scopedagent").propagate is False
+
+
+def test_an_unknown_level_is_refused_with_our_message_not_the_standard_librarys() -> None:
+    with pytest.raises(ValueError, match="must be one of"):
         configure_logging("LOUD")

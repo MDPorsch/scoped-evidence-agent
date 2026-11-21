@@ -7,6 +7,7 @@ import re
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+
 from scopedagent.domain.outcome import Coverage, ErrorStatus, ExitCode, coverage_from, exit_code_for
 from scopedagent.errors import (
     AuditError,

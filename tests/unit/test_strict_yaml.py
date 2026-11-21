@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+
 from scopedagent.errors import ErrorCode, ScopeError
 from scopedagent.policy.scope import parse_scope
-
 from tests.support import NOW, dump, scope_dict, scope_text
 
 pytestmark = pytest.mark.milestone("M1")
@@ -84,3 +84,38 @@ def test_text_fields_refuse_control_and_bidi_characters() -> None:
         data["owner_approval_ref"] = f"local{bad}consent"
         with pytest.raises(ScopeError):
             parse_scope(dump(data), now=NOW)
+
+
+@pytest.mark.parametrize("char", [chr(0), chr(1), chr(8), chr(0x0B), chr(0x1B), chr(0x7F), chr(0xFFFE)])
+def test_control_characters_are_a_scope_error_not_a_raw_yaml_exception(char: str) -> None:
+    # Found by Hypothesis: PyYAML rejects these in its constructor, which used to sit outside the try block.
+    refused(scope_text() + f"note: a{char}b\n", ErrorCode.SCOPE_001)
+    refused(char, ErrorCode.SCOPE_001)
+
+
+def test_a_bare_alias_is_refused_as_an_alias_before_the_composer_complains_it_is_undefined() -> None:
+    with pytest.raises(ScopeError) as caught:
+        parse_scope(scope_text() + "x: *nowhere\n", now=NOW)
+    assert caught.value.code is ErrorCode.SCOPE_002 and "alias" in str(caught.value).lower()
+
+
+def test_text_that_cannot_be_encoded_is_a_scope_error() -> None:
+    refused(scope_text() + "note: " + chr(0xD800) + "\n", ErrorCode.SCOPE_001)
+
+
+def test_the_expiry_check_needs_a_timezone_aware_now() -> None:
+    from datetime import datetime  # noqa: PLC0415
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        parse_scope(scope_text(), now=datetime(2026, 11, 20, 12, 0))
+
+
+def _nested(levels: int) -> str:
+    return scope_text() + "x: " + "[" * levels + "1" + "]" * levels + "\n"
+
+
+def test_the_nesting_cap_is_exactly_sixteen_levels() -> None:
+    # depth = the root mapping + the nested sequences + the innermost scalar; `x` is then an unknown field (SCOPE-003)
+    refused(_nested(14), ErrorCode.SCOPE_003)  # 16 levels: loads, then the unknown key is refused
+    refused(_nested(15), ErrorCode.SCOPE_002)  # 17 levels: refused as too deep before any field is looked at
+    refused(_nested(40), ErrorCode.SCOPE_002)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from scopedagent.errors import ErrorCode, ScopeError
 from scopedagent.policy.scope import canonical_host, canonical_path
 

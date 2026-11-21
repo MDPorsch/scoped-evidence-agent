@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from scopedagent.errors import ScopeError
 from scopedagent.policy.scope import canonical_host, canonical_path, parse_scope
-
 from tests.support import NOW, dump, scope_dict
 
 pytestmark = pytest.mark.milestone("M1")

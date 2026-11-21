@@ -6,12 +6,12 @@ import threading
 from typing import Any
 
 import pytest
+from sqlalchemy import select, text
+
 from scopedagent.domain.models import AuditEvent, Run
 from scopedagent.errors import BudgetError, ErrorCode, StateError
 from scopedagent.policy.budget import Permit, release, reserve
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
-from sqlalchemy import select, text
-
 from tests.support import make_database, run_in_state, seed, sql_insert, stamp
 
 pytestmark = pytest.mark.milestone("M1")
@@ -92,7 +92,6 @@ def test_budget_is_reserved_only_while_collecting(db: Any, state: str) -> None:
 def test_a_cancelled_run_cannot_reserve_either(db: Any) -> None:
     from scopedagent.domain.state_machine import Actor, ActorType, RunState  # noqa: PLC0415
     from scopedagent.storage.repositories import transition_run  # noqa: PLC0415
-
     from tests.support import NOW  # noqa: PLC0415
 
     run_id = run_in_state(db, "COLLECTING")
