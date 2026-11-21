@@ -6,8 +6,7 @@ It is not an autonomous exploitation agent and it never decides that something i
 
 **Status: pre-alpha, milestones M0 to M3.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
 YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: it
-opens no network connection, and live mode is deliberately not built. The contract is in `docs/`, the decisions in `DECISIONS.md`
-(all approved, D-E01 to D-E65).
+opens no network connection, and live mode is deliberately not built. The contract is in `docs/`; each document states the rules it applies.
 
 ## What it does
 
@@ -82,8 +81,8 @@ commands, a real example and the exit codes are in `docs/cli.md`; the pack forma
 
 ## Contributing
 
-See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `DECISIONS.md` first: it records what the project has decided
-(and what it will never do), and a change that contradicts it needs a new decision.
+See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `docs/` and `LIMITATIONS.md` first: they record what the project does
+(and what it will never do). References such as D-E59 name a design rule; the document that applies it states the rule in full.
 
 ## Why it is shaped this way
 
@@ -107,7 +106,7 @@ See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `DECISIONS.
 | `docs/cli.md` | the commands and the exit codes |
 | `docs/fixture-format.md` | fixture packs and the normalised observation schema |
 | `docs/test-matrix.md` | the 20 abuse cases and what covers each |
-| `DECISIONS.md`, `LIMITATIONS.md` | the choices awaiting review, and what this does not do |
+| `LIMITATIONS.md` | what this does not do |
 
 ## Develop
 

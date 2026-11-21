@@ -21,8 +21,8 @@ uv run ruff check . --no-cache && uv run ruff format --check . && uv run mypy
 2. **Do not weaken a guard** (the scope rules, the model's lack of authority, redaction, file permissions, the append-only audit
    trail, the no-socket test guard) to make something easier. If you think one is wrong, open an issue first.
 3. **Anything that changes egress, what the tool sends, token handling, evidence privacy or what a model may do needs the owner's
-   decision.** Say so in the pull request. `DECISIONS.md` records what has been decided; a change that contradicts it needs a new
-   decision, not just a patch.
+   decision.** Say so in the pull request. `docs/` and `LIMITATIONS.md` record what the project does and does not do; a change that
+   contradicts them needs a decision, not just a patch.
 4. **No exploitation.** The tool does not produce exploit code, attack payloads or attack chains (D-E59), and a model is never an
    authority over targets, scope or finding truth.
 5. **Synthetic data only.** No real credentials, tokens, keys, names, addresses or client data in code, tests, fixtures, issues or

@@ -70,8 +70,7 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ### Added (M0: contracts)
 - Threat model, scope format, data flow, CLI contract, fixture format and the abuse-case test matrix (`docs/`).
-- `DECISIONS.md` and `LIMITATIONS.md`. Decisions D-E28 to D-E47 are approved (2026-11-20); D-E01 to D-E27, D-E48 to D-E55
-  and D-E56 to D-E60 are proposed and await review.
+- `LIMITATIONS.md`. The design rules (D-E01 onward) are stated in the documents that apply them.
 - Fixtures: three scope files, three fixture packs (healthy, misconfigured, poisoned), a library of injection
   payloads and the golden normalised observations for each pack.
 - Tooling: Python 3.13, uv, strict mypy, Ruff, pytest with a 90% coverage gate, SHA-pinned GitHub Actions, gitleaks
