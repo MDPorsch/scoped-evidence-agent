@@ -10,7 +10,7 @@ happened. Expect an acknowledgement; this is a single-maintainer project, so the
 
 Anything that lets scope be widened, a secret be stored or leaked, the audit trail be altered unnoticed, a model
 or a response change what the tool does, or a path escape its directory. Offline use is the only supported mode
-today (see `DECISIONS.md`, D-E01); there is no network code to attack.
+today (see `docs/threat-model.md`); there is no network code to attack.
 
 ## What is not
 
