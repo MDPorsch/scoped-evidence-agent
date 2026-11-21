@@ -98,6 +98,12 @@ def test_only_the_first_fifty_elements_of_an_array_are_read_but_its_length_is_wh
     assert got[("$.rows", "array")] == 200 and got[("$.rows[].k", "number")] is None
 
 
+def test_an_element_past_the_fiftieth_is_not_read_so_a_late_surprise_is_not_in_the_shape() -> None:
+    rows = [{"a": 1}] * 50 + [{"late": "surprise"}]
+    got = shape_of({"rows": rows})
+    assert ("$.rows[].a", "number") in got and ("$.rows[].late", "string") not in got and got[("$.rows", "array")] == 51
+
+
 def test_nesting_past_twelve_levels_is_cut_and_the_shape_is_partial() -> None:
     doc: Any = {"leaf": 1}
     for _ in range(14):
@@ -251,6 +257,14 @@ def test_a_swagger_two_document_is_read_and_things_that_are_not_operations_are_s
     }
     summary = api_spec_summary(json.dumps(doc))
     assert summary["openapi"] == "2.0" and summary["operation_count"] == 1 and summary["security_schemes"] == ["basic"]
+
+
+def test_a_path_level_parameters_object_is_not_an_operation_however_it_is_shaped() -> None:
+    doc = {
+        "openapi": "3.0.0",
+        "paths": {"/a": {"get": {}, "parameters": {"in": "query"}, "servers": {}, "summary": {}}},
+    }
+    assert api_spec_summary(json.dumps(doc))["operation_count"] == 1
 
 
 def test_a_spec_with_no_paths_lists_no_operations() -> None:

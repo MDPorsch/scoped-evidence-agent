@@ -198,6 +198,15 @@ def test_the_api_limit_is_used_and_the_stricter_of_the_two_wins() -> None:
     assert build_adapters(pack_of({}), config)["api_read"]._limits == {"orders-api": 100_000}  # type: ignore[attr-defined]
 
 
+def test_an_api_limit_smaller_than_the_global_one_is_the_one_used() -> None:
+    config = parse_scope(scope_text(API_PACK), now=NOW).config
+    api = config.api_targets[0].model_copy(
+        update={"limits": config.api_targets[0].limits.model_copy(update={"max_response_bytes": 4096})}
+    )
+    config = config.model_copy(update={"api_targets": [api]})
+    assert build_adapters(pack_of({}), config)["api_read"]._limits == {"orders-api": 4096}  # type: ignore[attr-defined]
+
+
 def test_a_compressed_body_is_never_decoded_so_it_has_no_shape() -> None:
     gz = base64.b64encode(b"\x1f\x8b\x08\x00binary").decode()
     result = read(
