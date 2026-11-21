@@ -45,7 +45,7 @@ from scopedagent.policy.authorization import AUTHORIZATION_NOTICE
 from scopedagent.policy.scope import load_scope, parse_scope
 from scopedagent.storage.artifacts import ArtifactStore
 from scopedagent.storage.audit import verify_chain
-from scopedagent.storage.database import DataDir, open_database, upgrade_database
+from scopedagent.storage.database import DataDir, open_database, upgrade_database_with_backup
 from scopedagent.storage.repositories import (
     MAX_PAGE,
     MIN_REF,
@@ -147,10 +147,14 @@ def _stamp(moment: datetime) -> str:
 def db_upgrade(data_dir: DataDirOption = None) -> None:
     """Create or migrate the database. The only command that changes the schema."""
     try:
-        revision = upgrade_database(_data_dir(data_dir))
+        revision, backup = upgrade_database_with_backup(_data_dir(data_dir))
     except ScopedAgentError as exc:
         raise _fail(exc) from None
     typer.echo(f"database ready: revision {revision} at {_data_dir(data_dir).root}")
+    if backup is not None:
+        typer.echo(
+            f"a copy of the database as it was before this upgrade is kept at {backup} (delete it when you are sure)"
+        )
 
 
 @scope_app.command("validate")
@@ -167,6 +171,10 @@ def scope_validate(ctx: typer.Context, file: Annotated[Path, typer.Argument(help
     breakdown = f"dns {counts['dns_metadata']}, tls {counts['tls_metadata']}, http {counts['http_metadata']}"
     if config.ai_targets:
         breakdown += f", ai metadata {counts['ai_metadata']}, ai probes {counts['ai_probe']}"
+    if config.api_targets:
+        breakdown += (
+            f", api specs {counts['api_spec']}, api reads {counts['api_read']}, api options {counts['api_options']}"
+        )
     typer.echo(
         f"targets: {len(config.allowed_targets)}   planned operations: {len(loaded.planned)} ({breakdown})"
         f"   max_requests: {config.max_requests}"
@@ -178,6 +186,15 @@ def scope_validate(ctx: typer.Context, file: Annotated[Path, typer.Argument(help
         )
         for ai in config.ai_targets:
             typer.echo(f"  {ai.id} ({ai.kind}, {ai.environment})")
+    if config.api_targets:
+        typer.echo(
+            f"api targets: {len(config.api_targets)}   api requests: {sum(a.request_count for a in config.api_targets)}"
+        )
+        for api in config.api_targets:
+            typer.echo(
+                f"  {api.id} ({api.kind}, {api.environment}): {api.request_count} of {api.limits.max_api_requests} "
+                f"requests, principals: anonymous + {len(api.principals)}"
+            )
     if len(loaded.planned) > config.max_requests:
         typer.echo(
             f"warning: the scope plans {len(loaded.planned)} operations but max_requests is {config.max_requests}; "

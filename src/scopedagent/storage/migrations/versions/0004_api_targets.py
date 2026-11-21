@@ -24,7 +24,9 @@ branch_labels = None
 depends_on = None
 
 ERROR_STATUSES = "'ok', 'timeout', 'dns_failure', 'tls_failure', 'http_error', 'refused_by_policy', 'budget_exhausted', 'size_limit', 'parse_error', 'adapter_error'"
-TYPES = "'dns_metadata', 'tls_metadata', 'http_metadata', 'ai_metadata', 'ai_probe', 'api_spec', 'api_read', 'api_options'"
+TYPES = (
+    "'dns_metadata', 'tls_metadata', 'http_metadata', 'ai_metadata', 'ai_probe', 'api_spec', 'api_read', 'api_options'"
+)
 ADAPTERS = "'offline_dns', 'offline_tls', 'offline_http', 'offline_ai', 'offline_api'"
 TRIGGER = (
     "CREATE TRIGGER observations_target_in_engagement BEFORE INSERT ON observations "

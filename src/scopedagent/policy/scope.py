@@ -572,7 +572,9 @@ class ApiTarget(_Model):
         for origin in value:
             match = _ORIGIN.fullmatch(origin)
             if match is None:
-                raise ScopeValueError(ErrorCode.SCOPE_006, "an origin is https://host or https://host:port, nothing more")
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_006, "an origin is https://host or https://host:port, nothing more"
+                )
             _host_for_model_exact(match.group(1))
             if match.group(2) is not None and (not 1 <= int(match.group(2)) <= 65535 or match.group(2) == "443"):
                 raise ScopeValueError(ErrorCode.SCOPE_006, "an origin port is 1 to 65535, and not 443 (it is implied)")
@@ -600,7 +602,9 @@ class ApiTarget(_Model):
             (bool(self.endpoints), bool(wants & {"api_read", "api_options"}), "endpoints"),
         ):
             if present != needed:
-                raise ScopeValueError(ErrorCode.SCOPE_009, f"{name} are required for their operation and valid only with it")
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_009, f"{name} are required for their operation and valid only with it"
+                )
 
     def _check_principals(self) -> None:
         ids = [p.id for p in self.principals]
@@ -612,13 +616,13 @@ class ApiTarget(_Model):
             raise ScopeValueError(ErrorCode.SCOPE_005, "two endpoints share an id")
         for endpoint in self.endpoints:
             if not set(endpoint.principals) <= known:
-                raise ScopeValueError(
-                    ErrorCode.SCOPE_009, "an endpoint lists a principal this target does not define"
-                )
+                raise ScopeValueError(ErrorCode.SCOPE_009, "an endpoint lists a principal this target does not define")
 
     def _check_size(self) -> None:
         lengths = [len(path) for path in self.spec_paths]
-        for endpoint in self.endpoints:  # the longest path each endpoint can be asked at, with its longest values filled in
+        for (
+            endpoint
+        ) in self.endpoints:  # the longest path each endpoint can be asked at, with its longest values filled in
             lengths.append(
                 len(_join(self.base_path, endpoint.path))
                 + sum(max(len(v) for v in endpoint.params[n]) - len(n) - 2 for n in endpoint.params)
@@ -628,7 +632,9 @@ class ApiTarget(_Model):
             raise ScopeValueError(ErrorCode.SCOPE_006, "a request path would be longer than 256 characters")
         origin = max((len(o) for o in self.cors_origins), default=0)
         if len(self.host) + longest + origin > 400:  # keeps the recorded request line within its 512-character field
-            raise ScopeValueError(ErrorCode.SCOPE_006, "the host, the longest path and the origin are too long together")
+            raise ScopeValueError(
+                ErrorCode.SCOPE_006, "the host, the longest path and the origin are too long together"
+            )
         if self.request_count > self.limits.max_api_requests:
             raise ScopeValueError(
                 ErrorCode.SCOPE_007,

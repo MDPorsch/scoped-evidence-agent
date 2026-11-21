@@ -18,6 +18,8 @@ PACKS = ("healthy", "misconfigured", "poisoned")
 SCOPE_FILES = {name: FIXTURES / "approved_scope" / f"lab-{name}.yaml" for name in PACKS}
 AI_PACK = "ai-support-bot"
 SCOPE_FILES[AI_PACK] = FIXTURES / "approved_scope" / f"{AI_PACK}.yaml"  # the AI-system scope (not one of PACKS)
+API_PACK = "api-orders"
+SCOPE_FILES[API_PACK] = FIXTURES / "approved_scope" / f"{API_PACK}.yaml"  # the API scope (not one of PACKS)
 
 
 def assemble(*parts: str) -> str:

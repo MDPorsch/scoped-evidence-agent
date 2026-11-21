@@ -300,3 +300,18 @@ def test_the_end_marker_is_searched_for_only_until_it_is_known_not_to_exist(monk
     begin = assemble("-----BEGIN ", "PRIVATE KEY-----")
     result = module.redact_text((begin + "x" * 5000) * 5)
     assert result.count == 5 and len(searches) == 1
+
+
+def test_the_cors_credentials_flag_is_a_policy_not_a_credential() -> None:
+    assert not is_sensitive_header("access-control-allow-credentials")
+    assert not is_sensitive_header("Access-Control-Allow-Credentials")
+    assert redact_headers({"access-control-allow-credentials": ["true"]}) == {
+        "access-control-allow-credentials": ["true"]
+    }
+
+
+@pytest.mark.parametrize(
+    "name", ["x-credentials", "access-control-allow-credentials-x", "x-access-control-allow-credentials", "credentials"]
+)
+def test_only_that_exact_name_is_exempt_from_the_credential_word(name: str) -> None:
+    assert is_sensitive_header(name)

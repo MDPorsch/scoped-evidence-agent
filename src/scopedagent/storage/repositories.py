@@ -284,6 +284,11 @@ def list_runs(session: Session, *, limit: int, offset: int) -> list[Run]:
 
 
 # --------------------------------------------------------------------------------- observations ----
+def _target_kind(observation_type: str) -> str:
+    """The kind of target an observation of this type may be recorded against."""
+    return "ai" if observation_type.startswith("ai_") else "api" if observation_type.startswith("api_") else "web"
+
+
 def record_observation(
     session: Session,
     *,
@@ -331,7 +336,7 @@ def record_observation(
         target is None
         or target.engagement_id != run.engagement_id
         or (target.host_canonical, target.scheme, target.port) != wanted
-        or target.kind != ("ai" if envelope.observation_type.startswith("ai_") else "web")
+        or target.kind != _target_kind(envelope.observation_type)
     ):
         _deny(
             session,

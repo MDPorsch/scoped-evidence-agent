@@ -26,6 +26,7 @@ _EXACT = frozenset(
 )  # fmt: skip
 _WORDS = ("token", "secret", "password", "passwd", "api-key", "apikey", "credential")
 _NOT_SENSITIVE_PREFIXES = ("x-ratelimit", "ratelimit", "retry-after")  # counts of tokens or requests, not credentials
+_NOT_SENSITIVE_NAMES = frozenset({"access-control-allow-credentials"})  # a CORS policy flag (true), not a credential
 
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,2048}\.[A-Za-z0-9_-]{5,2048}\.[A-Za-z0-9_-]{5,2048}")
 _VENDOR = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|(?:AKIA|ASIA)[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,255})\b")
@@ -49,7 +50,7 @@ class RedactionResult:
 
 def is_sensitive_header(name: str) -> bool:
     lowered = name.lower()
-    if lowered.startswith(_NOT_SENSITIVE_PREFIXES):
+    if lowered in _NOT_SENSITIVE_NAMES or lowered.startswith(_NOT_SENSITIVE_PREFIXES):
         return False
     return lowered in _EXACT or any(word in lowered for word in _WORDS)
 

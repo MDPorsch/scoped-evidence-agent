@@ -1,0 +1,563 @@
+[
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_spec",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous GET https://api.staging.example.invalid:443/openapi.json",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/openapi.json",
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ]
+      },
+      "body": {
+        "size_bytes": 611,
+        "truncated": false,
+        "content_type": "application/json",
+        "artifact_sha256": "c51d7f71fccfaaa6f32d39b43514aefeae2431f07de073f300d0994e3378c565",
+        "parsed": {
+          "openapi": "3.0.3",
+          "path_count": 4,
+          "server_urls": [
+            "https://api.staging.example.invalid/v1",
+            "https://other.example.invalid"
+          ],
+          "security_schemes": [
+            "bearerAuth"
+          ],
+          "operation_count": 5,
+          "operations_without_security": 2
+        }
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous GET https://api.staging.example.invalid:443/v1/projects",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects",
+      "endpoint_id": "list-projects",
+      "principal": "anonymous",
+      "method": "GET",
+      "params": {},
+      "http_status": 401,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ],
+        "www-authenticate": [
+          "Bearer realm=\"orders\""
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 110,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.detail",
+          "type": "string",
+          "length": 69
+        },
+        {
+          "path": "$.error",
+          "type": "string",
+          "length": 12
+        }
+      ],
+      "shape_digest": "9e989f93bb6af4d4f7a5f3194f70f724e5e172d19e87a2fa2b66e7ddc57839c4",
+      "flags": {
+        "has_stack_trace_markers": true,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API tenant-a-user GET https://api.staging.example.invalid:443/v1/projects",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects",
+      "endpoint_id": "list-projects",
+      "principal": "tenant-a-user",
+      "method": "GET",
+      "params": {},
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ],
+        "set-cookie": [
+          "[REDACTED]"
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 137,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.items",
+          "type": "array",
+          "length": 2
+        },
+        {
+          "path": "$.items[]",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.items[].id",
+          "type": "string",
+          "length": 6
+        },
+        {
+          "path": "$.items[].name",
+          "type": "string",
+          "length": 5
+        },
+        {
+          "path": "$.items[].owner",
+          "type": "string",
+          "length": 8
+        },
+        {
+          "path": "$.next",
+          "type": "null",
+          "length": null
+        }
+      ],
+      "shape_digest": "f641d7eb716c24bbf4da852df91768fcf603a4049c19392ffa7c882f4e13da3e",
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API tenant-a-user GET https://api.staging.example.invalid:443/v1/projects/p-1001",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects/p-1001",
+      "endpoint_id": "get-project",
+      "principal": "tenant-a-user",
+      "method": "GET",
+      "params": {
+        "project_id": "p-1001"
+      },
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 143,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.debug",
+          "type": "boolean",
+          "length": null
+        },
+        {
+          "path": "$.id",
+          "type": "string",
+          "length": 6
+        },
+        {
+          "path": "$.name",
+          "type": "string",
+          "length": 5
+        },
+        {
+          "path": "$.owner",
+          "type": "string",
+          "length": 8
+        },
+        {
+          "path": "$.request",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.request.headers",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.request.headers.authorization",
+          "type": "string",
+          "length": 10
+        }
+      ],
+      "shape_digest": "71389184dafbdde2dd72a69e593acf073ef85c93a24afd987ffa6a1279ed16e5",
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": true,
+        "echoes_request_headers": true
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API tenant-b-user GET https://api.staging.example.invalid:443/v1/projects/p-1001",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects/p-1001",
+      "endpoint_id": "get-project",
+      "principal": "tenant-b-user",
+      "method": "GET",
+      "params": {
+        "project_id": "p-1001"
+      },
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 54,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.id",
+          "type": "string",
+          "length": 6
+        },
+        {
+          "path": "$.name",
+          "type": "string",
+          "length": 5
+        },
+        {
+          "path": "$.owner",
+          "type": "string",
+          "length": 8
+        }
+      ],
+      "shape_digest": "0100226807570135eecd456b0dccb92fb4610e27ffd8291420086b5febbbab2b",
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API tenant-a-user GET https://api.staging.example.invalid:443/v1/projects/p-2002",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects/p-2002",
+      "endpoint_id": "get-project",
+      "principal": "tenant-a-user",
+      "method": "GET",
+      "params": {
+        "project_id": "p-2002"
+      },
+      "http_status": 403,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 22,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.error",
+          "type": "string",
+          "length": 9
+        }
+      ],
+      "shape_digest": "69251638a1b19f8288758f56cfa0118c366bc89dc8db7b88f98dd48acf7c8084",
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API tenant-b-user GET https://api.staging.example.invalid:443/v1/projects/p-2002",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects/p-2002",
+      "endpoint_id": "get-project",
+      "principal": "tenant-b-user",
+      "method": "GET",
+      "params": {
+        "project_id": "p-2002"
+      },
+      "http_status": 200,
+      "headers": {
+        "content-type": [
+          "application/json"
+        ]
+      },
+      "content_type": "application/json",
+      "size_bytes": 53,
+      "truncated": false,
+      "shape_status": "ok",
+      "shape": [
+        {
+          "path": "$",
+          "type": "object",
+          "length": null
+        },
+        {
+          "path": "$.id",
+          "type": "string",
+          "length": 6
+        },
+        {
+          "path": "$.name",
+          "type": "string",
+          "length": 4
+        },
+        {
+          "path": "$.owner",
+          "type": "string",
+          "length": 8
+        }
+      ],
+      "shape_digest": "0100226807570135eecd456b0dccb92fb4610e27ffd8291420086b5febbbab2b",
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_read",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous HEAD https://api.staging.example.invalid:443/v1/health",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/health",
+      "endpoint_id": "health",
+      "principal": "anonymous",
+      "method": "HEAD",
+      "params": {},
+      "http_status": 200,
+      "headers": {
+        "server": [
+          "nginx/1.14.0"
+        ]
+      },
+      "content_type": null,
+      "size_bytes": 0,
+      "truncated": false,
+      "shape_status": "none",
+      "shape": [],
+      "shape_digest": null,
+      "flags": {
+        "has_stack_trace_markers": false,
+        "has_debug_markers": false,
+        "echoes_request_headers": false
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_options",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous OPTIONS https://api.staging.example.invalid:443/v1/projects origin=https://untrusted.example.invalid",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects",
+      "endpoint_id": "list-projects",
+      "origin": "https://untrusted.example.invalid",
+      "http_status": 204,
+      "allow": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "cors": {
+        "allow_origin": "https://untrusted.example.invalid",
+        "allow_credentials": "true",
+        "allow_methods": "GET, HEAD, OPTIONS",
+        "allow_headers": "authorization, content-type"
+      }
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_options",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous OPTIONS https://api.staging.example.invalid:443/v1/projects/p-1001 origin=https://untrusted.example.invalid",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/projects/p-1001",
+      "endpoint_id": "get-project",
+      "origin": "https://untrusted.example.invalid",
+      "http_status": 204,
+      "allow": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "cors": null
+    }
+  },
+  {
+    "adapter": "offline_api",
+    "observation_type": "api_options",
+    "target": {
+      "host": "api.staging.example.invalid",
+      "scheme": "https",
+      "port": 443
+    },
+    "normalized_input": "API anonymous OPTIONS https://api.staging.example.invalid:443/v1/health origin=https://untrusted.example.invalid",
+    "error_status": "ok",
+    "payload": {
+      "api_target_id": "orders-api",
+      "host": "api.staging.example.invalid",
+      "port": 443,
+      "scheme": "https",
+      "path": "/v1/health",
+      "endpoint_id": "health",
+      "origin": "https://untrusted.example.invalid",
+      "http_status": 200,
+      "allow": [
+        "GET",
+        "HEAD"
+      ],
+      "cors": null
+    }
+  }
+]

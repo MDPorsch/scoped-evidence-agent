@@ -621,9 +621,7 @@ class OfflineApiSpec(_ApiAdapter):
                 parsed = api_spec_summary(ex.redacted_text)
             except ParseFailure:
                 outcome = ErrorStatus.PARSE_ERROR
-        payload = _api_payload(
-            operation, http_status=ex.status, headers=ex.headers, body=_body_summary(ex, parsed)
-        )
+        payload = _api_payload(operation, http_status=ex.status, headers=ex.headers, body=_body_summary(ex, parsed))
         return self._result(
             operation, outcome, payload, ex.source, ex.redactions, (ex.artifact, ex.artifact_mime, ex.artifact_status)
         )
@@ -676,9 +674,22 @@ class OfflineApiOptions(_ApiAdapter):
         ex = self._exchange(operation)
         if isinstance(ex, AdapterResult):
             return ex
-        names = ("access-control-allow-origin", "access-control-allow-credentials", "access-control-allow-methods", "access-control-allow-headers")
+        names = (
+            "access-control-allow-origin",
+            "access-control-allow-credentials",
+            "access-control-allow-methods",
+            "access-control-allow-headers",
+        )
         found = {n: (ex.headers.get(n) or [None])[0] for n in names}
-        cors = None if all(v is None for v in found.values()) else dict(zip(("allow_origin", "allow_credentials", "allow_methods", "allow_headers"), found.values(), strict=True))
+        cors = (
+            None
+            if all(v is None for v in found.values())
+            else dict(
+                zip(
+                    ("allow_origin", "allow_credentials", "allow_methods", "allow_headers"), found.values(), strict=True
+                )
+            )
+        )
         allow = allow_methods(ex.headers.get("allow", []))
         payload = _api_payload(operation, http_status=ex.status, allow=allow, cors=cors)
         source = _canon({"status": ex.status, "allow": allow, "cors": cors})

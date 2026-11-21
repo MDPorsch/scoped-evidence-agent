@@ -21,6 +21,7 @@ from scopedagent.policy.scope import LoadedScope, parse_scope
 from scopedagent.storage.audit import verify_chain
 from tests.support import (
     AI_PACK,
+    API_PACK,
     FIXTURES,
     NOW,
     PACKS,
@@ -40,7 +41,7 @@ from tests.support import (
 pytestmark = pytest.mark.milestone("M2")
 
 HUMAN = Actor(ActorType.HUMAN, "alice")
-ALL = [(name, f"{name}") for name in PACKS] + [(AI_PACK, AI_PACK)]
+ALL = [(name, f"{name}") for name in PACKS] + [(AI_PACK, AI_PACK), (API_PACK, API_PACK)]
 
 
 @pytest.fixture
@@ -118,7 +119,7 @@ def test_a_complete_collection_ends_drafted_with_a_verified_audit_chain_and_exit
 ) -> None:
     result = run(env, scope_name)
     db, _, _ = env
-    expected = ExitCode.OK if scope_name == "healthy" else ExitCode.REVIEW  # three: complete, with drafts to review
+    expected = ExitCode.OK if scope_name in ("healthy", API_PACK) else ExitCode.REVIEW  # three: complete, with drafts to review
     assert result.state == "DRAFTED" and result.exit_code is expected and result.coverage.complete and not result.failed
     with db.begin() as session:
         run_row = session.get(Run, result.run_id)

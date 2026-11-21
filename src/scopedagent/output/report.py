@@ -59,6 +59,10 @@ def subject_of(kind: str, payload: dict[str, Any]) -> str:
         return f"{payload['host']}:{payload['port']}"
     if kind == "ai_probe":
         return f"probe {payload['probe_set']}[{payload['probe_index']}]"
+    if kind == "api_read":
+        return f"{payload['principal']} {payload['method']} {payload['path']}"
+    if kind == "api_options":
+        return f"OPTIONS {payload['path']} from {payload['origin']}"
     return f"{payload['scheme']}://{payload['host']}:{payload['port']}{payload['path']}"
 
 
