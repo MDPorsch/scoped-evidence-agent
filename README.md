@@ -4,9 +4,10 @@ An auditable, **local-first** assistant that collects bounded reconnaissance evi
 targets, keeps that evidence tamper-evident and redacted, and drafts observations that **a human must review**.
 It is not an autonomous exploitation agent and it never decides that something is a vulnerability.
 
-**Status: pre-alpha, milestones M0 to M3.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
-YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: it
-opens no network connection, and live mode is deliberately not built. The contract is in `docs/`; each document states the rules it applies.
+**Status: pre-alpha, milestones M0 to M4.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
+YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: `run`
+opens no network connection, and live mode is deliberately not built. The one optional exception is an AI wording step that is **off by
+default** (below). The contract is in `docs/`; each document states the rules it applies.
 
 ## What it does
 
@@ -34,7 +35,7 @@ not an exploit tool and not an autonomous agent.
 **Where it is today.** Scope checking, the database, the audit trail and the state machines exist, and so do the offline collectors,
 the rule catalogue, review and reports. DNS, TLS, HTTP and AI-reply evidence is read from a fixture pack, redacted and stored; rules
 draft findings from it (each a draft, with a class, conditions, an assessment and read-only validation steps); a person reviews each
-draft; a report can be exported. Every run reports its coverage (an operation that errored or had no answer makes it exit `2`), and a
+draft; a report can be exported. An optional, off-by-default model may reword a draft's sentences (`docs/ai-adapter.md`). Every run reports its coverage (an operation that errored or had no answer makes it exit `2`), and a
 complete collection with drafts exits `3`. No draft is not proof that nothing is wrong: twelve rules cover only some flaws
 (`LIMITATIONS.md`). Live remote collection is an approved design (`docs/remote-live-design.md`) that is built last and reviewed
 again before use.
@@ -79,6 +80,23 @@ uv run scoped-agent findings show ID              # ID is the first eight charac
 `scope validate` refuses wildcards, IP addresses, expired dates, redirects and ambiguous names with a stable error code. The
 commands, a real example and the exit codes are in `docs/cli.md`; the pack format and what is redacted are in `docs/fixture-format.md`.
 
+## Optional: AI wording (off by default)
+
+A rule writes every sentence of a draft. If you want them reworded to read more plainly, you can switch on a model that does **only that**:
+
+```bash
+uv tool install "git+https://github.com/MDPorsch/scoped-evidence-agent#egg=scoped-evidence-agent[ai]"   # adds the Anthropic SDK
+export ANTHROPIC_API_KEY=...                  # the key stays in your environment: it is never stored or printed
+scoped-agent ai enable                        # shows what is sent, asks you to type "enable"
+scoped-agent ai test                          # one small request to check the key and the model
+scoped-agent findings reword RUN_ID           # then: findings show ID, or a report, shows the wording under the rule's text
+scoped-agent ai disable                       # off again; saved wordings stay
+```
+
+Only a draft's rule sentences are sent (host names are replaced by placeholders), never anything a target said. Every answer is checked
+by code, a sentence that changes a number, a name or a host or adds a verdict word is dropped, and the rule's own text is always shown
+first with the wording labelled as not verified. `run` never calls a model. Try the whole path with no key: `scoped-agent ai enable --provider offline`.
+
 ## Contributing
 
 See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `docs/` and `LIMITATIONS.md` first: they record what the project does
@@ -92,7 +110,7 @@ See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `docs/` and
   and never widens it from a redirect, a CNAME or a sentence inside a web page. A human confirms authorization
   outside the tool.
 * **Target content is hostile.** Prompt injection, secrets in headers and oversized bodies are primary threats.
-  The model (when one is added) has no tools, no authority over targets and no way to mark anything verified.
+  The optional model has no tools, no authority over targets, is never shown a target's words and has no way to mark anything verified.
 * **Evidence is redacted before it is stored,** content-addressed, private on disk, short-lived by default, and
   recorded in an append-only, hash-chained audit trail.
 
@@ -104,6 +122,7 @@ See `CONTRIBUTING.md`. Security problems: `SECURITY.md`. Please read `docs/` and
 | `docs/scope-format.md` | the scope file contract and the canonical host rules |
 | `docs/data-flow.md` | what is stored, redacted, retained and sent |
 | `docs/cli.md` | the commands and the exit codes |
+| `docs/ai-adapter.md` | the optional model: what it may do, what it is sent, how its answer is checked |
 | `docs/fixture-format.md` | fixture packs and the normalised observation schema |
 | `docs/test-matrix.md` | the 20 abuse cases and what covers each |
 | `LIMITATIONS.md` | what this does not do |
