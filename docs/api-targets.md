@@ -1,7 +1,6 @@
 # Scopes for pentesting APIs (contract)
 
-Status: **proposed**, for your review. Decisions D-E48 to D-E55 in `DECISIONS.md`; several are review-gated (what the tool sends,
-token handling, evidence privacy). Offline fixtures only until the live design (`remote-live-design.md`, approved) is built, and
+Status: **approved by the owner on 2026-11-21 (D-E48 to D-E55)**; built after the offline collectors. Offline fixtures only until the live design (`remote-live-design.md`, approved) is built, and
 then only inside its isolation. It is built after the AI-target scopes, which it shares its structure with.
 
 ## What this adds, and where it stops
