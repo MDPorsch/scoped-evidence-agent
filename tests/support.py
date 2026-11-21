@@ -63,7 +63,7 @@ def sql_insert(session: Any, table: str, **columns: Any) -> None:
 
     names = ", ".join(columns)
     marks = ", ".join(f":{name}" for name in columns)
-    session.execute(text(f"INSERT INTO {table} ({names}) VALUES ({marks})"), columns)  # noqa: S608 - test helper, fixed names
+    session.execute(text(f"INSERT INTO {table} ({names}) VALUES ({marks})"), columns)
 
 
 def seed(session: Any, **overrides: Any) -> dict[str, str]:
@@ -166,3 +166,71 @@ def raw_connection(path: Path) -> Iterator[Any]:
         connection.commit()
     finally:
         connection.close()
+
+
+# --------------------------------------------------------------------------------- collection helpers ----
+def make_env(tmp_path: Path) -> tuple[Any, Any, Any]:
+    """(database, artifact store, data dir) on a fresh private store."""
+    from scopedagent.storage.artifacts import ArtifactStore  # noqa: PLC0415
+    from scopedagent.storage.database import DataDir, open_database, upgrade_database  # noqa: PLC0415
+
+    data_dir = DataDir(tmp_path / "data")
+    upgrade_database(data_dir)
+    return open_database(data_dir), ArtifactStore(data_dir), data_dir
+
+
+def observation_rows(db: Any, run_id: str) -> list[dict[str, Any]]:
+    """Every observation of a run in insertion order, with its target row."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    with db.begin() as session:
+        rows = (
+            session.execute(
+                text(
+                    "SELECT o.adapter, o.observation_type, o.normalized_json, o.normalized_input_hash, o.error_status, o.source_hash, o.collected_at, "
+                    "t.host_canonical, t.scheme, t.port, t.kind FROM observations o JOIN targets t ON t.id = o.target_id "
+                    "WHERE o.run_id = :run ORDER BY o.rowid"
+                ),
+                {"run": run_id},
+            )
+            .mappings()
+            .all()
+        )
+        return [dict(r) for r in rows]
+
+
+def artifact_hashes(db: Any, run_id: str) -> set[str]:
+    from sqlalchemy import text  # noqa: PLC0415
+
+    with db.begin() as session:
+        return set(session.execute(text("SELECT sha256 FROM artifacts WHERE run_id = :run"), {"run": run_id}).scalars())
+
+
+def everything_stored(db: Any, data_dir: Any) -> str:
+    """Every text value in every table, and every artifact file, as one string: what an attacker with the files could read."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    parts: list[str] = []
+    with db.begin() as session:
+        tables = (
+            session.execute(text("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"))
+            .scalars()
+            .all()
+        )
+        for table in tables:
+            for row in session.execute(text(f"SELECT * FROM {table}")).all():
+                parts.extend(str(v) for v in row)
+    if data_dir.artifacts_dir.exists():
+        parts.extend(p.read_bytes().decode("latin-1") for p in data_dir.artifacts_dir.rglob("*") if p.is_file())
+    return "\n".join(parts)
+
+
+def pack_variant(tmp_path: Path, name: str, edit: Any) -> Path:
+    """A copy of a committed pack with `edit(pack_dict)` applied; returns the new file."""
+    import yaml  # noqa: PLC0415
+
+    data = pack(name)
+    edit(data)
+    path = tmp_path / f"{name}-variant.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False, width=10_000), encoding="utf-8")
+    return path
