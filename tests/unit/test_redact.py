@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
 from scopedagent.pipeline.redact import REDACTED, is_sensitive_header, redact_headers, redact_text
+from tests.support import assemble
 
 pytestmark = pytest.mark.milestone("M2")
 
@@ -17,15 +20,17 @@ def jwt() -> str:
 
 
 def github_token() -> str:
-    return "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    return assemble("gh", "p_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8")
 
 
 def aws_key() -> str:
-    return "AK" + "IA" + "ABCDEFGHIJKLMNOP"
+    return assemble("AK", "IA", "ABCDEFGHIJKLMNOP")
 
 
 def pem() -> str:
-    return "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK\nabcdefghijkl\n-----END " + "RSA PRIVATE KEY-----"
+    return assemble(
+        "-----BEGIN ", "RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK\nabcdefghijkl\n-----END ", "RSA PRIVATE KEY-----"
+    )
 
 
 # ----------------------------------------------------------------------------------------- headers ----
@@ -217,3 +222,81 @@ def test_no_input_makes_redaction_crash_or_grow_without_bound(text: str) -> None
 )
 def test_a_generated_value_after_a_sensitive_key_never_survives(value: str, key: str) -> None:
     assert value not in redact_text(f"{key}={value}").text
+
+
+def test_a_begin_marker_inside_a_removed_block_is_not_counted_twice() -> None:
+    begin = assemble("-----BEGIN ", "RSA PRIVATE KEY-----")
+    end = assemble("-----END ", "RSA PRIVATE KEY-----")
+    result = redact_text(f"a {begin}\nxx\n{begin}\nyy\n{end} b")
+    assert result.text == f"a {REDACTED} b"
+    assert result.count == 1
+
+
+def test_a_doubled_begin_marker_cannot_hide_the_key_body() -> None:
+    begin = assemble("-----BEGIN ", "PRIVATE KEY-----")
+    end = assemble("-----END ", "PRIVATE KEY-----")
+    result = redact_text(f"{begin}\n{begin}\nREALKEYBODYREALKEYBODY\n{end}")
+    assert "REALKEYBODY" not in result.text
+    assert result.text == REDACTED
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "x-ratelimit-remaining-tokens",
+        "x-ratelimit-limit-tokens",
+        "ratelimit-remaining-tokens",
+        "ratelimit-reset-tokens",
+        "openai-processing-ms",
+    ],
+)
+def test_a_rate_limit_header_that_mentions_tokens_is_not_a_credential(name: str) -> None:
+    assert not is_sensitive_header(name)
+
+
+@pytest.mark.parametrize(
+    "name", ["x-db-passwd", "X-Service-Passwd", "x-my-apikey", "x-service-api-key", "x-client-credential"]
+)
+def test_a_header_naming_a_credential_by_any_of_its_words_is_sensitive(name: str) -> None:
+    assert is_sensitive_header(name)
+
+
+def test_an_own_domain_email_is_kept_whatever_its_case() -> None:
+    text = "Contact: Security@LAB.Example.Invalid"
+    result = redact_text(text, own_host="lab.example.invalid")
+    assert (result.text, result.count) == (text, 0)
+
+
+def test_a_look_alike_domain_is_not_the_targets_own() -> None:
+    result = redact_text("a@notlab.example.invalid", own_host="lab.example.invalid")
+    assert (result.text, result.count) == (REDACTED, 1)
+
+
+def test_a_redacted_email_is_counted() -> None:
+    result = redact_text("mail bob@other.example.invalid now", own_host="lab.example.invalid")
+    assert (result.text, result.count) == (f"mail {REDACTED} now", 1)
+
+
+def test_an_unterminated_private_key_block_loses_what_follows_it_but_only_so_far() -> None:
+    begin = assemble("-----BEGIN ", "PRIVATE KEY-----")
+    result = redact_text(f"{begin}\nMIIBOgIBAAJBAKsecretsecret")
+    assert result.text == REDACTED and result.count == 1
+    long = redact_text(f"{begin}\n" + "x" * 5000 + " tail")
+    assert long.text.endswith(" tail") and len(long.text) < 1000
+
+
+def test_the_end_marker_is_searched_for_only_until_it_is_known_not_to_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scopedagent.pipeline import redact as module  # noqa: PLC0415
+
+    searches: list[int] = []
+    real = module._PEM_END
+
+    class Spy:
+        def search(self, text: str, position: int = 0) -> Any:
+            searches.append(position)
+            return real.search(text, position)
+
+    monkeypatch.setattr(module, "_PEM_END", Spy())
+    begin = assemble("-----BEGIN ", "PRIVATE KEY-----")
+    result = module.redact_text((begin + "x" * 5000) * 5)
+    assert result.count == 5 and len(searches) == 1

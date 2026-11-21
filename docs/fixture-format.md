@@ -48,6 +48,41 @@ secret scanner never has a real-looking secret in history to find.
 
 A request the pack does not answer is a **recorded error** (`adapter_error`), never an empty success.
 
+## What a pack may contain (built in M2)
+
+* **Sections are optional**: `dns`, `tls`, `http` and `ai`. A scope that plans an operation the pack has no section for gets an
+  `adapter_error` for that operation and the run ends incomplete (exit `2`).
+* **Keys are canonical**: a DNS key is a canonical host; a TLS key is `host:port`; an HTTP or AI key is
+  `scheme://host:port/path` with an explicit port and no query; a probe key is `probe:<ai target id>:<probe set>:<index 0-9>`. A key in
+  another form refuses the whole pack (`PACK-003`), so a pack cannot answer a request the plan never makes.
+* **Limits**: at most 2 MiB, 200 entries per section, UTF-8, loaded with the strict YAML rules of a scope (no aliases, anchors, merge keys
+  or duplicate keys). A pack that is not a regular file, is too large or is not valid text is `PACK-001`; a forbidden YAML feature is
+  `PACK-002`.
+* **An entry is checked when it is used**, not when the pack loads. One malformed answer becomes a recorded `parse_error` for that
+  operation and the run carries on; it never stops the run.
+* **`error:`** on an HTTP or AI entry simulates a failed request: any status other than `ok` (`timeout`, `http_error`, `size_limit`, ...)
+  is recorded as that failure. `error: ok` and an unknown value are a `parse_error`, because a failure that succeeds is a lie.
+* **`body` or `body_base64`**, never both. A body that is not valid UTF-8 text, or that arrives with a `content-encoding` other than
+  `identity`, is **never decoded**: its bytes are not stored, a placeholder is, and the artifact is marked `metadata_only`.
+* **A body over the scope's `max_response_bytes` is cut**, recorded with `truncated: true` and `error_status: size_limit`, and is not
+  parsed (a cut document would parse as something it is not).
+
+## What is redacted before anything is stored (D-E12, D-E14)
+
+Redaction is best effort and says so (`LIMITATIONS.md`, SE-05). Before an observation, an artifact or a source hash is made:
+
+| What | Rule |
+|---|---|
+| A header value | replaced when the **name** is sensitive: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, or a name containing `token`, `secret`, `password`, `passwd`, `api-key`, `apikey` or `credential`. `x-ratelimit-*`, `ratelimit-*` and `retry-after` are counts, not credentials, and are kept |
+| Any text | JSON Web Tokens, GitHub/AWS/Slack token shapes, `Bearer`/`Basic` credentials, the value after `password`, `secret`, `token`, `api_key`, `access_key`, `authorization`, `auth_token` or `client_secret` (the key is kept so a reader sees what was removed), and private-key blocks (a block with no end marker has what follows it removed, up to 4096 characters) |
+| An e-mail address | replaced, **except** an address at the target's own host or one of its subdomains (a `security.txt` contact is public by design) |
+| Control characters | removed from every structured text field (headers, DNS records, certificate names, parsed values) |
+
+Every pattern is length-bounded, so a hostile input cannot make a match slow (a test feeds it inputs built to try).
+
+`source_hash` is the SHA-256 of the canonical JSON of the **redacted** entry. A secret that was removed therefore cannot be recovered
+from, or confirmed by, the hash, and two runs over packs that differ only in a secret value have the same `source_hash`.
+
 ## The normalised observation (what adapters must emit)
 
 Every observation has an envelope and a typed payload. Payload models are strict (unknown fields refused).
@@ -73,7 +108,9 @@ a rule evaluated later against the run's clock, so a stored observation never go
 `headers` (lower-case names, at most 64, values redacted by name and shape), `redirect_location` (recorded, never
 followed), `body` or null (`size_bytes`, `truncated`, `content_type`, `artifact_sha256`, `parsed`).
 `parsed` is a small bounded document extracted from known paths (security.txt fields, an OpenAPI summary, robots
-directives); it is never executed or fetched from.
+directives); it is never executed or fetched from. Nothing free-form is copied: an OpenAPI title or description is never read, and
+every list is capped (and shortened, last entries first, until the facts fit the schema's 8 KiB limit) so a large but valid file is
+still collected.
 
 ## AI-system packs
 

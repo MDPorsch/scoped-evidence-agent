@@ -22,6 +22,9 @@ class ErrorCode(StrEnum):
     SCOPE_009 = "SCOPE-009"  # an allowed operation no target can use
     SCOPE_010 = "SCOPE-010"  # the scope changed after it was validated
     SCOPE_011 = "SCOPE-011"  # an AI-system rule is broken (layer, rules, probe library, production reference)
+    PACK_001 = "PACK-001"  # a fixture pack is unreadable, too large, not UTF-8 or has control characters
+    PACK_002 = "PACK-002"  # a forbidden YAML construct in a pack
+    PACK_003 = "PACK-003"  # a pack with an invalid structure, name or key
     POLICY_001 = "POLICY-001"  # live mode is not available in this version
     POLICY_002 = "POLICY-002"  # a reference is missing or belongs to another run or engagement
     POLICY_003 = "POLICY-003"  # an argument is out of range
@@ -68,6 +71,10 @@ class StateError(ScopedAgentError):
 
 
 class AuditError(ScopedAgentError):
+    exit_code = 1
+
+
+class PackError(ScopedAgentError):
     exit_code = 1
 
 

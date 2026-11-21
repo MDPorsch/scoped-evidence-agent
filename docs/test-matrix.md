@@ -9,26 +9,26 @@ generated inputs, `negative/` the "this must be impossible" checks.
 
 | Case | Input / failure | Expected | Covered by | Status |
 |---|---|---|---|---|
-| AE-01 | Expired scope, missing approval, scope changed after validation | fail before any adapter | `unit/test_authorization.py`, `unit/test_scope_schema.py` (expiry), `integration/test_runs.py` (a run cannot be created from an expired engagement) | **Covered** at the policy and run layer. M2 adds "before the first adapter call" |
-| AE-02 | Redirect to localhost or an external host | recorded, never followed | `unit/test_scope_schema.py` (`follow_redirects: true` is refused); fixture `misconfigured` holds the redirect | **Partial**: the schema layer. The adapter that records it is M2 |
+| AE-01 | Expired scope, missing approval, scope changed after validation | fail before any adapter | `unit/test_authorization.py`, `unit/test_scope_schema.py` (expiry), `integration/test_runs.py`, `integration/test_collection.py` (a live scope, and a scope that expired after it was loaded, are refused before anything is stored) | **Covered** |
+| AE-02 | Redirect to localhost or an external host | recorded, never followed | `unit/test_scope_schema.py` (`follow_redirects: true` is refused), `adversarial/test_hostile_responses.py` (the redirect is data and nothing is contacted), the `misconfigured` golden | **Covered** offline. The live check that a followed redirect cannot leave the scope is M5 |
 | AE-03 | DNS answer is loopback, private, link-local, metadata, IPv6-mapped | live denied | none | **Deferred to M5**: there is no live mode |
 | AE-04 | Host with IDN, trailing dot, upper case, userinfo, mixed encoding | canonical or refused | `unit/test_scope_hosts_paths.py`, `adversarial/test_hostile_scope_input.py`, `property/test_properties.py` | **Covered** |
-| AE-05 | CNAME to an unapproved domain | recorded, scope never expands | fixture `misconfigured` holds the CNAME | **Planned (M2)** |
-| AE-06 | Response contains prompt injection | no change to tools, scope or secrets | fixture `poisoned` and `fixtures/poisoned_text/` | **Planned (M2, M4)** |
-| AE-07 | Headers contain cookies or API keys | redacted before storage and before a model | `unit/test_logs.py` (logs only); fixtures hold synthetic secrets | **Planned (M2)**: redaction of observations is M2 |
+| AE-05 | CNAME to an unapproved domain | recorded, scope never expands | `adversarial/test_hostile_responses.py` (a CNAME never becomes a target), the `misconfigured` golden | **Covered** |
+| AE-06 | Response contains prompt injection | no change to tools, scope or secrets | `adversarial/test_hostile_responses.py` (every payload in `fixtures/poisoned_text/` is kept as data and changes nothing else), `integration/test_collection.py` (the poisoned pack) | **Covered** for collection. The model boundary is M4 |
+| AE-07 | Headers contain cookies or API keys | redacted before storage and before a model | `unit/test_redact.py`, `integration/test_collection.py` (a secret in a header, a body and a reply is stored nowhere; the source hash ignores a removed secret), `unit/test_logs.py` | **Covered** for storage. The model boundary is M4 |
 | AE-08 | Model returns invalid JSON or a hostile schema | rejected, bounded retry or fallback | none | **Planned (M4)** |
 | AE-09 | Model asserts a vulnerability with no evidence | kept as draft or marked unsupported | `unit/test_state_machine.py`, `integration/test_observations_findings.py` (the model cannot create a draft or move any state; a draft needs evidence) | **Partial**: authority is covered. Claim validation is M4 |
-| AE-10 | Timeout, HTTP error, DNS failure | recorded as an error, run incomplete (exit 2), never clean | `unit/test_errors_and_outcome.py` (coverage, exit codes, a Hypothesis property) | **Partial**: the taxonomy and exit codes. The adapters that raise them are M2 |
+| AE-10 | Timeout, HTTP error, DNS failure | recorded as an error, run incomplete (exit 2), never clean | `unit/test_errors_and_outcome.py`, `unit/test_offline_adapters.py` (every odd entry), `integration/test_collection.py` (a missing answer, a declared failure, an exhausted budget, a crashing adapter) | **Covered** |
 | AE-11 | Crash between artifact write and row, or a DB failure | atomic store, no orphan, no dangling row | `integration/test_artifacts.py` (failed rename, failed fsync, database failure after the write) | **Covered** |
 | AE-12 | Racing workers share one budget | no overshoot | `integration/test_budget.py` (four threads, 120 attempts, 40 units), `property/test_properties.py` | **Covered**. "Shared" is read as one run's budget across workers |
-| AE-13 | 1 MB body, zip bomb, huge header, malformed certificate | hard caps, safe errors | `unit/test_scope_schema.py` (limits), `unit/test_observation_schemas.py` (header, body, record caps), `integration/test_artifacts.py` (size cap) | **Partial**: the caps. Parsing real hostile responses is M2 |
+| AE-13 | 1 MB body, zip bomb, huge header, malformed certificate | hard caps, safe errors | `adversarial/test_hostile_responses.py` (over the limit, exactly at it, header caps, compressed and binary bodies, deep nesting, pathological text), `unit/test_observation_schemas.py`, `unit/test_parse.py`, `integration/test_artifacts.py` | **Covered** |
 | AE-14 | Export or purge path such as `../../secret` | traversal refused, no overwrite | `integration/test_artifacts.py` (forged path, symlinks, non-digest names) | **Partial**: artifacts and purge. Report export is M3 |
-| AE-15 | Cancel mid-run, then retry | no lost audit, new attempt, history kept | `integration/test_runs.py` | **Covered** for the state machine and audit. Resuming collection is M2 |
+| AE-15 | Cancel mid-run, then retry | no lost audit, new attempt, history kept | `integration/test_runs.py`, `integration/test_collection.py` (cancelling mid-run keeps what was collected and the audit trail; a fresh run completes) | **Covered** |
 | AE-16 | A stale observation cited by a newer run | refused by the database | `integration/test_observations_findings.py`, `integration/test_database.py` (composite foreign key) | **Covered** |
 | AE-17 | Model provider unavailable | deterministic offline fallback | none | **Planned (M4)** |
-| AE-18 | Non-GET, or a query carrying a token | refused | `unit/test_scope_hosts_paths.py`, `unit/test_observation_schemas.py` (method is GET or HEAD, no query in a path) | **Partial**: scope and schema. The adapter is M2 |
+| AE-18 | Non-GET, or a query carrying a token | refused | `unit/test_scope_hosts_paths.py`, `unit/test_observation_schemas.py`, `unit/test_pack.py` (a pack key with a query is refused; a key has no way to name another method) | **Covered** offline: the adapter only answers `GET` keys. The live adapter is M5 |
 | AE-19 | Two aliases for one host | duplicates refused in the scope; correlation dedupes only within scope | `unit/test_scope_schema.py` | **Partial**: scope. Correlation is M3 |
-| AE-20 | Content asks to widen the scope | refused and noted | fixture `poisoned` | **Planned (M2, M4)** |
+| AE-20 | Content asks to widen the scope | refused and noted | `adversarial/test_hostile_responses.py`, `integration/test_collection.py` (the poisoned pack adds no target and changes nothing but its own observations) | **Covered** for collection. The model boundary is M4 |
 
 ## Additional invariants (not in the spec's list)
 
@@ -53,12 +53,12 @@ generated inputs, `negative/` the "this must be impossible" checks.
 | AI-04 | A probe set whose category the target does not authorize is refused | `unit/test_scope_ai_targets.py` | **Covered** |
 | AI-05 | Planned probes that exceed the request cap, or whose worst-case tokens exceed the total, are refused (both boundaries exact) | same | **Covered** |
 | AI-06 | Production needs a reference, and only production may have one | same | **Covered** |
-| AI-07 | A reply that contains injection text is recorded as data and never leaves as an instruction | `unit/test_ai_observation_schemas.py` (the fixture and its golden) | **Partial**: the fixture and schema. The collector is M2 and the model boundary M4 |
-| AI-08 | Whether a canary appeared is a recorded fact, recomputed independently from the pack | `unit/test_ai_observation_schemas.py` | **Partial**: goldens are consistent; the adapter that produces them is M2 |
-| AI-09 | Markup, links, code blocks and URLs in a reply are flagged as structure, never as a verdict, and no verdict field exists | same | **Partial**: schema and fixture; the adapter is M2 |
-| AI-10 | A reply that claims a tool was used is text, not an action | fixture only | **Planned (M2, M4)** |
+| AI-07 | A reply that contains injection text is recorded as data and never leaves as an instruction | `unit/test_ai_observation_schemas.py`, `adversarial/test_hostile_responses.py` | **Covered** for collection. The model boundary is M4 |
+| AI-08 | Whether a canary appeared is a recorded fact, recomputed independently from the pack | `unit/test_offline_adapters.py`, the goldens | **Covered** |
+| AI-09 | Markup, links, code blocks and URLs in a reply are flagged as structure, never as a verdict, and no verdict field exists | `unit/test_parse.py`, `unit/test_ai_observation_schemas.py`, the goldens | **Covered** |
+| AI-10 | A reply that claims a tool was used is text, not an action | `integration/test_collection.py` (the AI reply that says to call a tool is stored as text; nothing else changes) | **Partial**: collection. The model boundary is M4 |
 | AI-11 | Two AI targets with the same id or endpoint are refused, not merged | `unit/test_scope_ai_targets.py` | **Covered** |
-| AI-12 | Secrets in a reply are redacted before storage | none | **Planned (M2)** |
+| AI-12 | Secrets in a reply are redacted before storage | `integration/test_collection.py`, `unit/test_offline_adapters.py` | **Covered** |
 | AI-13 | An AI observation cannot be filed under a web target and a web observation cannot be filed under an AI target, in the application and in the database | `integration/test_ai_targets_storage.py` | **Covered** |
 | AI-14 | A scope without AI targets keeps its hash | `unit/test_scope_schema.py`, `unit/test_scope_ai_targets.py` | **Covered** |
 

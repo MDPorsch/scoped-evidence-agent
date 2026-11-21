@@ -3,7 +3,9 @@ variable."""
 
 from __future__ import annotations
 
+import asyncio
 import getpass
+import json
 import os
 from collections import Counter
 from collections.abc import Callable
@@ -16,13 +18,17 @@ import typer
 from sqlalchemy import select
 
 from scopedagent import __version__
+from scopedagent.adapters.pack import load_pack
 from scopedagent.domain.models import Engagement, Run
+from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, PolicyError, ScopedAgentError
+from scopedagent.pipeline.orchestrator import execute_run
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE
 from scopedagent.policy.scope import load_scope, parse_scope
+from scopedagent.storage.artifacts import ArtifactStore
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database
-from scopedagent.storage.repositories import MAX_PAGE, list_runs
+from scopedagent.storage.repositories import MAX_PAGE, list_observations, list_runs
 from scopedagent.template import starter_scope
 
 
@@ -57,6 +63,7 @@ db_app = typer.Typer(no_args_is_help=True, help="The evidence database.")
 scope_app = typer.Typer(no_args_is_help=True, help="Scope files.")
 runs_app = typer.Typer(no_args_is_help=True, help="Run history.")
 audit_app = typer.Typer(no_args_is_help=True, help="The audit trail.")
+observations_app = typer.Typer(no_args_is_help=True, help="Stored observations.")
 
 
 def _version_callback(value: bool) -> None:
@@ -78,6 +85,7 @@ app.add_typer(db_app, name="db")
 app.add_typer(scope_app, name="scope")
 app.add_typer(runs_app, name="runs")
 app.add_typer(audit_app, name="audit")
+app.add_typer(observations_app, name="observations")
 
 
 def _data_dir(chosen: Path | None) -> DataDir:
@@ -222,3 +230,117 @@ def audit_verify(
     except ScopedAgentError as exc:
         raise _fail(exc) from None
     typer.echo(f"audit chain ok: {count} event(s) for run {run_id}")
+
+
+CORRELATION_NOTE = (
+    "correlation and findings are not built yet: this run collected evidence only, and exit code 0 means "
+    "the collection was complete, not that nothing is wrong."
+)
+
+
+def _coverage_line(result: object) -> str:
+    coverage = result.coverage  # type: ignore[attr-defined]
+    if coverage.complete:
+        return "coverage: complete"
+    parts = [
+        f"{status.value}: {count}" for status, count in sorted(coverage.by_status.items(), key=lambda kv: kv[0].value)
+    ]
+    missing = coverage.planned - coverage.ok - sum(coverage.by_status.values())
+    if missing > 0:
+        parts.append(f"not run: {missing}")
+    return "coverage: incomplete" + (f" ({', '.join(parts)})" if parts else "")
+
+
+@app.command("run")
+def run_command(
+    ctx: typer.Context,
+    scope: Annotated[Path, typer.Option("--scope", help="The scope file.")],
+    fixture: Annotated[
+        Path, typer.Option("--fixture", help="The fixture pack (a YAML file) that answers the operations.")
+    ],
+    live: Annotated[bool, typer.Option("--live", help="Not available in this version.")] = False,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Offline run: validate the scope, collect from the pack, store redacted evidence. Opens no network connection."""
+    app_ctx = _context(ctx)
+    try:
+        if live:
+            raise PolicyError(ErrorCode.POLICY_001, "live mode is not available in this version (D-E01)")
+        now = app_ctx.clock()
+        loaded = load_scope(scope, now=now)
+        pack = load_pack(fixture)
+        directory = _data_dir(data_dir)
+        database = open_database(directory)
+        try:
+            result = asyncio.run(
+                execute_run(
+                    database,
+                    ArtifactStore(directory),
+                    loaded=loaded,
+                    pack=pack,
+                    human=Actor(ActorType.HUMAN, app_ctx.user()),
+                    now=now,
+                )
+            )
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo(f"run {result.run_id}   state: {result.state}")
+    typer.echo(f"scope sha256: {result.scope_sha256}")
+    typer.echo(
+        f"planned operations: {result.planned}   observations recorded: {result.observations}   "
+        f"artifacts stored: {result.artifacts}   redactions: {result.redactions}"
+    )
+    typer.echo(_coverage_line(result))
+    typer.echo(f"note: {CORRELATION_NOTE}")
+    typer.echo(f"note: {AUTHORIZATION_NOTICE}")
+    raise typer.Exit(int(result.exit_code))
+
+
+def _subject(kind: str, payload: dict[str, object]) -> str:
+    if kind == "dns_metadata":
+        return str(payload["host"])
+    if kind == "tls_metadata":
+        return f"{payload['host']}:{payload['port']}"
+    if kind == "ai_probe":
+        return f"probe {payload['probe_set']}[{payload['probe_index']}]"
+    return f"{payload['scheme']}://{payload['host']}:{payload['port']}{payload['path']}"
+
+
+@observations_app.command("show")
+def observations_show(
+    run_id: Annotated[str, typer.Argument(help="The run whose observations to show.")],
+    data_dir: DataDirOption = None,
+    limit: Annotated[int, typer.Option(help=f"Page size, 1 to {MAX_PAGE}.")] = MAX_PAGE,
+    offset: Annotated[int, typer.Option(help="Observations to skip.")] = 0,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print each stored (redacted) payload as one JSON line.")
+    ] = False,
+) -> None:
+    """Show the redacted observations of one run, in the order they were collected."""
+    try:
+        if not 1 <= limit <= MAX_PAGE or offset < 0:
+            raise PolicyError(
+                ErrorCode.POLICY_003, f"limit must be from 1 to {MAX_PAGE} and offset must not be negative"
+            )
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                if session.get(Run, run_id) is None:
+                    raise PolicyError(ErrorCode.POLICY_002, "no such run")
+                rows = list_observations(session, run_id, limit=limit, offset=offset)
+                if not rows:
+                    typer.echo("no observations")
+                elif as_json:
+                    for row in rows:
+                        typer.echo(row.normalized_json)
+                else:
+                    typer.echo("  #  type            status            subject")
+                    for index, row in enumerate(rows, start=offset + 1):
+                        subject = _subject(row.observation_type, json.loads(row.normalized_json))
+                        typer.echo(f"{index:>3}  {row.observation_type:<15} {row.error_status:<17} {subject}")
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None

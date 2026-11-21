@@ -6,8 +6,12 @@ import json
 import time
 
 import pytest
+
 from scopedagent.adapters.parse import (
+    MAX_PARSED_JSON,
     ParseFailure,
+    _bound,
+    _load,
     ai_flags,
     chat_completion,
     models_summary,
@@ -258,3 +262,55 @@ def test_flags_are_computed_in_linear_time_on_hostile_input() -> None:
     for text in ("<" * 100_000, "[" * 100_000, "[a](" * 25_000, "<a" + "x" * 100_000, "`" * 100_000, "http" * 50_000):
         ai_flags(text)
     assert time.monotonic() - started < 3
+
+
+def test_a_long_robots_file_is_summarised_within_the_schema_limit_keeping_the_first_entries() -> None:
+    text = "User-agent: *\n" + "".join(f"Disallow: /{i:02d}/{'a' * 240}\n" for i in range(50))
+    parsed = robots_summary(text)
+    assert len(json.dumps(parsed, ensure_ascii=True)) <= MAX_PARSED_JSON
+    assert parsed["user_agents"] == ["*"]
+    assert parsed["disallow"][0].startswith("/00/")
+    assert 10 < len(parsed["disallow"]) < 50  # the tail was dropped, not the whole list
+
+
+def test_non_ascii_text_counts_at_its_escaped_size() -> None:
+    text = "".join(f"Disallow: /{'é' * 200}{i}\n" for i in range(50))
+    assert len(json.dumps(robots_summary(text), ensure_ascii=True)) <= MAX_PARSED_JSON
+
+
+def test_facts_with_no_list_to_shorten_are_returned_unchanged() -> None:
+    facts = {"x": "a" * (MAX_PARSED_JSON + 10)}
+    assert _bound(facts) == facts
+
+
+def test_the_longest_list_loses_entries_first() -> None:
+    facts = {"short": ["a"], "long": ["b" * 3000, "c" * 3000, "d" * 3000]}
+    assert _bound(facts) == {"short": ["a"], "long": ["b" * 3000, "c" * 3000]}
+
+
+def test_a_unicode_line_separator_does_not_start_a_new_line() -> None:
+    parsed = security_txt_summary("Contact: mailto:a@x.invalid\u2028Contact: mailto:b@x.invalid\n")
+    assert len(parsed["contact"]) == 1
+    assert robots_summary("User-agent: *\nDisallow: /a\u2028Disallow: /b\n")["disallow"] != ["/a", "/b"]
+    assert len(robots_summary("User-agent: *\nDisallow: /a\u2028Disallow: /b\n")["disallow"]) == 1
+
+
+def test_robots_lists_are_capped_at_fifty_entries_each() -> None:
+    text = "".join(f"User-agent: bot{i}\nDisallow: /p{i}\n" for i in range(60))
+    parsed = robots_summary(text)
+    assert len(parsed["user_agents"]) == 50 and len(parsed["disallow"]) == 50
+    assert parsed["user_agents"][0] == "bot0" and parsed["disallow"][-1] == "/p49"
+
+
+def test_an_openapi_server_url_is_cut_at_512_characters() -> None:
+    doc = json.dumps({"openapi": "3.0.0", "servers": [{"url": "https://x.invalid/" + "a" * 600}]})
+    assert len(openapi_summary(doc)["server_urls"][0]) == 512
+
+
+def test_json_may_nest_64_levels_and_not_65() -> None:
+    def depth(value: object) -> int:
+        return 1 + depth(value[0]) if isinstance(value, list) and value else 1  # type: ignore[index]
+
+    assert depth(_load("[" * 63 + "[]" + "]" * 63, "doc")) == 64
+    with pytest.raises(ParseFailure):
+        _load("[" * 64 + "[]" + "]" * 64, "doc")

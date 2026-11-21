@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 import yaml
-from scopedagent.adapters.pack import MAX_PACK_BYTES, load_pack
 
+from scopedagent.adapters.pack import MAX_PACK_BYTES, load_pack
 from scopedagent.errors import ErrorCode, PackError
 from tests.support import AI_PACK, FIXTURES, PACKS
 
@@ -169,7 +169,31 @@ def test_python_tags_and_control_characters_are_refused(tmp_path: Path) -> None:
 
 
 def test_an_oversize_pack_is_refused_before_it_is_parsed(tmp_path: Path) -> None:
-    refused(tmp_path, "pack: abc\n# " + "a" * (MAX_PACK_BYTES + 10) + "\n", ErrorCode.PACK_001)
+    assert MAX_PACK_BYTES == 2 * 1024 * 1024  # the documented limit, pinned here so a change is a reviewed change
+    refused(tmp_path, "pack: abc\n# " + "a" * (2 * 1024 * 1024 + 10) + "\n", ErrorCode.PACK_001)
+
+
+def test_a_pack_exactly_at_the_size_limit_loads(tmp_path: Path) -> None:
+    head = "pack: abc\n# "
+    text = head + "a" * (2 * 1024 * 1024 - len(head) - 1) + "\n"
+    assert len(text.encode()) == 2 * 1024 * 1024
+    assert load_pack(write(tmp_path, text)).name == "abc"
+
+
+def test_text_that_is_not_utf8_is_refused_even_inside_a_comment(tmp_path: Path) -> None:
+    bad = tmp_path / "comment.yaml"
+    bad.write_bytes(b"pack: abc\n# \xff\n")
+    with pytest.raises(PackError) as caught:
+        load_pack(bad)
+    assert caught.value.code is ErrorCode.PACK_001
+    assert "UTF-8" in str(caught.value)
+
+
+def test_an_empty_file_or_an_empty_list_is_not_a_pack(tmp_path: Path) -> None:
+    for text in ("", "[]\n"):
+        with pytest.raises(PackError) as caught:
+            load_pack(write(tmp_path, text))
+        assert caught.value.code is ErrorCode.PACK_003 and "mapping" in str(caught.value)
 
 
 def test_a_missing_file_a_directory_a_fifo_and_non_utf8_are_refused(tmp_path: Path) -> None:

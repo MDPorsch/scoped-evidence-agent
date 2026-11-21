@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from scopedagent.adapters.pack import load_pack
-from scopedagent.pipeline.orchestrator import execute_run
 from sqlalchemy import text
 
+from scopedagent.adapters.pack import load_pack
 from scopedagent.domain.outcome import ExitCode
 from scopedagent.domain.state_machine import Actor, ActorType
+from scopedagent.pipeline.orchestrator import execute_run
 from scopedagent.policy.scope import parse_scope
 from tests.support import (
     FIXTURES,
@@ -224,7 +224,9 @@ def test_a_deeply_nested_openapi_document_is_a_parse_error_not_a_crash(env: Any,
 
 def test_pathological_text_in_a_body_is_processed_quickly(env: Any, tmp_path: Path) -> None:
     def edit(pack: dict[str, Any]) -> None:
-        pack["http"][ROBOTS]["body"] = ("token=" + "a" * 90_000) + ("@" * 5000) + ("eyJ" + "a" * 5000) + "\n"
+        pack["http"][ROBOTS]["body"] = (
+            ("token=" + "a" * 60_000) + ("@" * 5000) + ("eyJ" + "a" * 5000) + "\n"
+        )  # under the 100 KB scope limit
 
     started = time.monotonic()
     result = run(env, pack_variant(tmp_path, "healthy", edit))

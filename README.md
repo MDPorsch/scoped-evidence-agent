@@ -4,9 +4,9 @@ An auditable, **local-first** assistant that collects bounded reconnaissance evi
 targets, keeps that evidence tamper-evident and redacted, and drafts observations that **a human must review**.
 It is not an autonomous exploitation agent and it never decides that something is a vulnerability.
 
-**Status: pre-alpha, milestones M0 and M1 only.** Nothing collects data yet. What exists is the contract
-(`docs/`), the decisions awaiting review (`DECISIONS.md`), and the scope, storage, audit and state-machine
-foundations. It is **offline-only**: it opens no network connection, and live mode is deliberately not built.
+**Status: pre-alpha, milestones M0 to M2.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
+YAML file), and it is **offline-only**: it opens no network connection, and live mode is deliberately not built. Correlation,
+finding drafts and reports are the next milestone (M3). The contract is in `docs/`, the decisions in `DECISIONS.md`.
 
 ## What it does
 
@@ -31,9 +31,11 @@ those targets and keeps it in a form you can defend afterwards:
 It is for the *evidence* part of an assessment: what was observed, how, when, and what is still unverified. It is not a scanner,
 not an exploit tool and not an autonomous agent.
 
-**Where it is today.** Only the foundations exist (scope checking, the database, the audit trail, the state machines). It does
-not collect anything yet: the offline collectors are the next milestone, and live remote collection is an approved design
-(`docs/remote-live-design.md`) that is built last, after the offline collectors, and reviewed again before use.
+**Where it is today.** Scope checking, the database, the audit trail and the state machines exist, and so do the offline
+collectors: DNS, TLS, HTTP and AI-reply evidence is read from a fixture pack, redacted and stored, and every run reports its
+coverage (an operation that errored or had no answer makes the run exit `2`). Nothing is correlated or drafted yet, so a run that
+exits `0` means "the collection was complete", never "nothing is wrong". Live remote collection is an approved design
+(`docs/remote-live-design.md`) that is built last and reviewed again before use.
 
 ## Install and try it
 
@@ -44,19 +46,30 @@ uv tool install git+https://github.com/MDPorsch/scoped-evidence-agent     # or: 
 scoped-agent --version
 ```
 
-What works today, none of it touching a network:
+The commands below touch no network:
 
 ```bash
 scoped-agent scope init scope.yaml        # write a valid starter scope on a reserved .invalid host, then edit it
 scoped-agent scope validate scope.yaml    # parse it, show its hash and the operations it would plan
 scoped-agent db upgrade                   # create the local evidence database (private files, ~/.local/share/scopedagent)
+scoped-agent run --scope scope.yaml --fixture pack.yaml   # collect from a fixture pack; prints the coverage
 scoped-agent runs list                    # list recorded runs
+scoped-agent observations show RUN_ID     # the redacted observations of one run
 scoped-agent audit verify RUN_ID          # recompute a run's tamper-evident audit chain
 ```
 
-`scope validate` is the useful one today: it refuses wildcards, IP addresses, expired dates, redirects and ambiguous names with a
-stable error code. **It cannot collect anything yet**: the offline collectors are the next milestone, so there are no runs to list
-until then. The commands and exit codes are in `docs/cli.md`.
+The fixtures are not part of the installed package. To see a run, use a clone, which holds scopes and packs for a healthy, a
+misconfigured and a poisoned lab host and for an AI support bot (all on reserved `.invalid` names, with synthetic secrets):
+
+```bash
+git clone https://github.com/MDPorsch/scoped-evidence-agent && cd scoped-evidence-agent && uv sync
+uv run scoped-agent db upgrade
+uv run scoped-agent run --scope fixtures/approved_scope/lab-misconfigured.yaml --fixture fixtures/web_responses/misconfigured.yaml
+uv run scoped-agent observations show RUN_ID      # RUN_ID is printed by the run; `runs list` shows it again
+```
+
+`scope validate` refuses wildcards, IP addresses, expired dates, redirects and ambiguous names with a stable error code. The
+commands, a real example and the exit codes are in `docs/cli.md`; the pack format and what is redacted are in `docs/fixture-format.md`.
 
 ## Contributing
 

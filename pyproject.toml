@@ -81,6 +81,8 @@ ignore = ["PLR2004"]
 "src/scopedagent/cli.py" = ["T201", "PLR0913", "PLR0917"]  # a CLI command has one parameter per option
 "src/scopedagent/storage/**" = ["PLR0913", "PLR0917"]  # service functions take explicit keyword-only arguments on purpose
 "src/scopedagent/policy/**" = ["PLR0913", "PLR0917"]
+"src/scopedagent/pipeline/**" = ["PLR0913", "PLR0917"]
+"src/scopedagent/adapters/**" = ["PLR0911", "PLR0913", "PLR0917"]  # many answers to one question; keyword-only arguments
 "src/scopedagent/storage/migrations/versions/*" = ["E501"]  # SQL lists
 
 # ------------------------------------------------------------------ mypy ----

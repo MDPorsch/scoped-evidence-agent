@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from scopedagent.adapters.pack import load_pack
-from scopedagent.pipeline.orchestrator import RunResult, execute_run
 from sqlalchemy import select, text
 
+from scopedagent.adapters.pack import load_pack
 from scopedagent.domain.models import AuditEvent, Run
 from scopedagent.domain.outcome import ExitCode
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, PolicyError, ScopeError
+from scopedagent.pipeline.orchestrator import RunResult, execute_run
 from scopedagent.policy.scope import LoadedScope, parse_scope
 from scopedagent.storage.audit import verify_chain
 from tests.support import (
@@ -25,6 +25,7 @@ from tests.support import (
     NOW,
     PACKS,
     artifact_hashes,
+    assemble,
     dump,
     everything_stored,
     golden,
@@ -416,7 +417,7 @@ def test_only_a_human_may_start_a_collection(env: Any) -> None:
 # ----------------------------------------------------------------------------- nothing leaks ----
 def test_a_secret_in_a_header_a_body_and_a_reply_is_stored_nowhere(env: Any, tmp_path: Path) -> None:
     jwt = ".".join(["eyJ" + "hbGciOiJIUzI1NiJ9", "eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0", "dummysig" + "natureXYZ12"])
-    token = "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    token = assemble("gh", "p_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8")
 
     def edit(data: dict[str, Any]) -> None:
         data["http"]["https://lab.example.invalid:443/robots.txt"]["body"] = (
@@ -437,7 +438,7 @@ def test_a_secret_in_a_header_a_body_and_a_reply_is_stored_nowhere(env: Any, tmp
 def test_an_ai_reply_with_a_secret_is_stored_redacted_but_its_length_is_the_length_received(
     env: Any, tmp_path: Path
 ) -> None:
-    secret = "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+    secret = assemble("gh", "p_", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8")
     reply = f"Sure. CANARY-5A1E9C02 {secret}"
 
     def edit(data: dict[str, Any]) -> None:
@@ -503,3 +504,13 @@ def test_the_ai_scope_run_uses_only_ai_targets(env: Any) -> None:
     db, _, _ = env
     assert {r["kind"] for r in observation_rows(db, result.run_id)} == {"ai"}
     assert result.planned == 5
+
+
+@pytest.mark.parametrize(("limit", "offset"), [(0, 0), (101, 0), (-1, 0), (10, -1)])
+def test_listing_observations_refuses_out_of_range_paging(env: Any, limit: int, offset: int) -> None:
+    from scopedagent.storage.repositories import list_observations  # noqa: PLC0415
+
+    result = run(env, "healthy")
+    db, _, _ = env
+    with db.begin() as session, pytest.raises(ValueError, match="must"):
+        list_observations(session, result.run_id, limit=limit, offset=offset)

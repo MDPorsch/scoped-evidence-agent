@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from itertools import product
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from scopedagent.domain.models import Engagement, FindingDraft, FindingEvidence, Observation, Run, Target
@@ -224,6 +224,22 @@ def retry_run(session: Session, run_id: str, *, actor: Actor, now: datetime) -> 
         now=now,
     )
     return fresh
+
+
+def list_observations(session: Session, run_id: str, *, limit: int, offset: int) -> list[Observation]:
+    """The observations of one run in the order they were stored (`rowid` is the insertion order)."""
+    if not 1 <= limit <= MAX_PAGE:
+        raise ValueError(f"limit must be from 1 to {MAX_PAGE}")
+    if offset < 0:
+        raise ValueError("offset must not be negative")
+    query = (
+        select(Observation)
+        .where(Observation.run_id == run_id)
+        .order_by(text("observations.rowid"))
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(session.scalars(query))
 
 
 def list_runs(session: Session, *, limit: int, offset: int) -> list[Run]:

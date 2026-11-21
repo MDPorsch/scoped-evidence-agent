@@ -38,11 +38,23 @@ milestone. Residual risks are listed, not hidden.
   operator's to notice.
 * **SE-15 A purge deletes files before its transaction commits.** If the commit then fails, rows remain whose files are gone and
   reading them reports a missing artifact (it never returns wrong bytes). The receipt counts what was deleted.
-* **SE-16 The probe library holds ids, not texts.** A scope can name a reviewed probe set and its plan is exact, but the probe
-  texts arrive with the adapter in M2. Nothing here has been run against a real AI system.
+* **SE-16 The probe library holds ids, not texts, and nothing has met a real AI system.** A scope can name a reviewed probe set and its
+  plan is exact. In 0.x the offline adapter answers a probe from a recorded reply and sends nothing, so no probe text exists yet; the
+  texts arrive with live mode (M5).
 * **SE-17 AI facts are simple checks, not judgements.** "A canary appeared" is a substring test and the structure flags are pattern
   matches. A canary echoed inside a refusal still counts as present, and a flag says nothing about whether the structure is
   dangerous. A human decides.
 * **SE-18 Probe consumption is bounded by the scope, not measured live.** The worst case is computed from the limits you wrote. A
   target that bills differently, counts tokens differently or ignores a token limit is outside what this tool can see.
-
+* **SE-19 A complete collection with no correlation is exit code 0.** Until the correlator exists (M3), a run that collected everything
+  it planned exits `0` and drafts nothing. That is not evidence that nothing is wrong; the run prints a note saying so.
+* **SE-20 Redaction is pattern-based.** A secret in a shape no pattern knows (a custom token format, a password in prose, a value
+  split across lines) is stored. Header names, key=value pairs, private-key blocks and common token shapes are covered; see
+  `docs/fixture-format.md`. Review what a run stored (`observations show`) before sharing it.
+* **SE-21 The target's own e-mail addresses are kept.** An address at the target's host or a subdomain (a `security.txt` contact) is
+  public by design and is stored. A personal address at the target's own domain is stored too.
+* **SE-22 Offline collection is sequential.** Operations run one at a time in plan order so a run is reproducible. Parallelism arrives
+  with live mode, where the scope's `max_parallelism` applies.
+* **SE-23 A parsed document keeps only a few named facts, and the longest lists are cut to fit.** A very large `robots.txt` or OpenAPI
+  document is summarised (first entries kept, last dropped) so it is collected rather than refused; the stored artifact keeps the
+  redacted text up to the scope's byte limit.

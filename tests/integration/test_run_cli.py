@@ -220,3 +220,46 @@ def test_a_run_with_no_observations_says_so(data_dir: Path) -> None:
         run_id = create_run(session, engagement, actor=Actor(ActorType.HUMAN, "alice"), now=NOW).id
     db.close()
     assert "no observations" in invoke("observations", "show", run_id, "--data-dir", str(data_dir)).output.lower()
+
+
+def test_the_coverage_line_counts_operations_that_never_ran() -> None:
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from scopedagent.cli import _coverage_line  # noqa: PLC0415
+    from scopedagent.domain.outcome import Coverage, ErrorStatus  # noqa: PLC0415
+
+    partial = SimpleNamespace(coverage=Coverage(planned=10, ok=6, by_status={ErrorStatus.TIMEOUT: 1}))
+    assert _coverage_line(partial) == "coverage: incomplete (timeout: 1, not run: 3)"
+    nothing = SimpleNamespace(coverage=Coverage(planned=4, ok=0, by_status={}))
+    assert _coverage_line(nothing) == "coverage: incomplete (not run: 4)"
+    assert _coverage_line(SimpleNamespace(coverage=Coverage(planned=4, ok=4, by_status={}))) == "coverage: complete"
+
+
+def test_the_run_is_started_by_the_user_the_context_names(data_dir: Path) -> None:
+    import contextlib  # noqa: PLC0415
+    import sqlite3  # noqa: PLC0415
+
+    assert do_run(data_dir).exit_code == 0
+    with contextlib.closing(sqlite3.connect(data_dir / "evidence.sqlite")) as connection:
+        actors = connection.execute(
+            "SELECT actor_type, actor_id FROM audit_events WHERE action = 'run.created'"
+        ).fetchall()
+    assert actors == [("human", "alice")]
+
+
+def test_the_coverage_line_lists_statuses_in_a_stable_order() -> None:
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from scopedagent.cli import _coverage_line  # noqa: PLC0415
+    from scopedagent.domain.outcome import Coverage, ErrorStatus  # noqa: PLC0415
+
+    statuses = {ErrorStatus.TIMEOUT: 1, ErrorStatus.ADAPTER_ERROR: 2}
+    line = _coverage_line(SimpleNamespace(coverage=Coverage(planned=3, ok=0, by_status=statuses)))
+    assert line == "coverage: incomplete (adapter_error: 2, timeout: 1)"
+
+
+def test_observation_numbers_follow_the_offset(data_dir: Path) -> None:
+    run_id = run_id_of(do_run(data_dir).output)
+    shown = invoke("observations", "show", run_id, "--offset", "2", "--limit", "2", "--data-dir", str(data_dir))
+    numbers = [line.split()[0] for line in shown.output.splitlines()[1:]]
+    assert numbers == ["3", "4"]

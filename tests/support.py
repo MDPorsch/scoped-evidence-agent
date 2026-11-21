@@ -20,6 +20,11 @@ AI_PACK = "ai-support-bot"
 SCOPE_FILES[AI_PACK] = FIXTURES / "approved_scope" / f"{AI_PACK}.yaml"  # the AI-system scope (not one of PACKS)
 
 
+def assemble(*parts: str) -> str:
+    """Join parts at run time. A call cannot be constant-folded, so no secret-shaped literal ever reaches the bytecode either."""
+    return "".join(parts)
+
+
 def scope_text(name: str = "healthy") -> str:
     return SCOPE_FILES[name].read_text(encoding="utf-8")
 

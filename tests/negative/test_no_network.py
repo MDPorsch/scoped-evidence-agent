@@ -25,6 +25,28 @@ def test_the_guard_really_blocks_sockets() -> None:
             call()
 
 
+def test_network_sockets_of_both_families_are_blocked_but_local_ones_are_not() -> None:
+    for family in (socket.AF_INET, socket.AF_INET6):
+        with pytest.raises(NetworkAttempt):
+            socket.socket(family, socket.SOCK_STREAM)
+        with pytest.raises(NetworkAttempt):
+            socket.socket(family, socket.SOCK_DGRAM)
+    left, right = socket.socketpair()  # what asyncio uses to wake its loop: local, reaches nothing
+    left.close()
+    right.close()
+    local = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    local.close()
+
+
+def test_an_offline_event_loop_can_run_under_the_guard() -> None:
+    import asyncio  # noqa: PLC0415
+
+    async def answer() -> int:
+        return 42
+
+    assert asyncio.run(answer()) == 42
+
+
 def test_importing_the_package_loads_no_network_client_library() -> None:
     code = textwrap.dedent(
         """
