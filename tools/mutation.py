@@ -1449,8 +1449,15 @@ M.update({
 
 # ================================================ M5: API targets (D-E48 to D-E55) =========================================
 PAR, MIG4 = (f"{SRC}/{n}.py" for n in ("adapters/parse", "storage/migrations/versions/0004_api_targets"))  # fmt: skip
-SC_API_PRODUCTION = after(SCP, "    def _check_fields(self) -> None:", '        if (self.environment == "production") != (self.production_approval_ref is not None):', "        if False:")
-SC_OPTIONS_LAST = after(SCP, 'if "api_options" in api.operations:\n        for endpoint', "principal=ANONYMOUS", 'principal="tenant-a-user"')
+SC_API_PRODUCTION = after(
+    SCP,
+    "    def _check_fields(self) -> None:",
+    '        if (self.environment == "production") != (self.production_approval_ref is not None):',
+    "        if False:",
+)
+SC_OPTIONS_LAST = after(
+    SCP, 'if "api_options" in api.operations:\n        for endpoint', "principal=ANONYMOUS", 'principal="tenant-a-user"'
+)
 SC_ORIGIN_REPEAT = after(SCP, "    def _origins(cls", "if len(set(value)) != len(value):", "if False:")
 
 M.update({
