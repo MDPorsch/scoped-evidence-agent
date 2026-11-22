@@ -8,22 +8,30 @@ import getpass
 import json
 import os
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from scopedagent import __version__
 from scopedagent.adapters.pack import load_pack
+from scopedagent.ai.config import AiConfig, AiLimits, Provider, default_config, load_config, save_config
+from scopedagent.ai.factory import build_adapter
+from scopedagent.ai.fields import label
+from scopedagent.ai.prompt import PROMPT_VERSION
+from scopedagent.ai.protocol import ModelUnavailable, RewordItem, RewordRequest
+from scopedagent.ai.reword import reword_run
+from scopedagent.ai.validation import validate_item
 from scopedagent.domain.findings import FindingDetails, ReviewDecision
-from scopedagent.domain.models import Engagement, FindingDraft, Run
+from scopedagent.domain.models import Engagement, FindingDraft, FindingWording, Run
 from scopedagent.domain.state_machine import Actor, ActorType
-from scopedagent.errors import ErrorCode, PolicyError, ScopedAgentError
+from scopedagent.errors import AiError, ErrorCode, PolicyError, ScopedAgentError
 from scopedagent.logs import safe_text
 from scopedagent.output.report import (
     build_report,
@@ -49,6 +57,7 @@ from scopedagent.storage.repositories import (
     resolve_finding,
     review_finding,
 )
+from scopedagent.storage.wordings import list_wordings
 from scopedagent.template import starter_scope
 
 
@@ -86,6 +95,9 @@ audit_app = typer.Typer(no_args_is_help=True, help="The audit trail.")
 observations_app = typer.Typer(no_args_is_help=True, help="Stored observations.")
 findings_app = typer.Typer(no_args_is_help=True, help="Draft findings and their review.")
 report_app = typer.Typer(no_args_is_help=True, help="Reports.")
+ai_app = typer.Typer(
+    no_args_is_help=True, help="The optional model that may reword a draft's sentences (off by default)."
+)
 
 
 def _version_callback(value: bool) -> None:
@@ -110,6 +122,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(observations_app, name="observations")
 app.add_typer(findings_app, name="findings")
 app.add_typer(report_app, name="report")
+app.add_typer(ai_app, name="ai")
 
 
 def _data_dir(chosen: Path | None) -> DataDir:
@@ -278,6 +291,21 @@ def _coverage_line(result: object) -> str:
     return "coverage: incomplete" + (f" ({', '.join(parts)})" if parts else "")
 
 
+def _ai_hint(root: Path, result: Any) -> None:
+    """One line after a run when the model is on and drafts exist. Reads the configuration only: no adapter, no key."""
+    if not getattr(result, "findings", 0):
+        return
+    try:
+        config = load_config(root)
+    except AiError:
+        return  # a broken AI file must not touch a run; `ai status` says what is wrong
+    if config is not None and config.enabled:
+        typer.echo(
+            f"note: AI wording is on: run `scoped-agent findings reword {result.run_id}` to reword the drafts "
+            "(the only command that calls a model)"
+        )
+
+
 @app.command("run")
 def run_command(
     ctx: typer.Context,
@@ -324,6 +352,7 @@ def run_command(
     typer.echo(f"note: {DRAFT_NOTE}")
     typer.echo(f"note: {NO_DRAFT_NOTE}")
     typer.echo(f"note: {AUTHORIZATION_NOTICE}")
+    _ai_hint(directory.root, result)
     raise typer.Exit(int(result.exit_code))
 
 
@@ -450,7 +479,12 @@ def _show_details(details: FindingDetails) -> None:
     echo(f"remediation: {details.remediation}")
 
 
-def _show(finding: FindingDraft, details: FindingDetails | None, reviews: list[tuple[str, str, str, str]]) -> None:
+def _show(
+    finding: FindingDraft,
+    details: FindingDetails | None,
+    reviews: list[tuple[str, str, str, str]],
+    wordings: Sequence[FindingWording] = (),
+) -> None:
     echo = typer.echo
     echo(_label(finding.status))
     echo(f"title: {safe_text(finding.title, 160)}")
@@ -461,6 +495,11 @@ def _show(finding: FindingDraft, details: FindingDetails | None, reviews: list[t
     echo("evidence: " + ", ".join(finding.evidence_ids))
     if details is not None:
         _show_details(details)
+    if wordings:
+        echo("wording by a model (not verified; the rule's text above is authoritative):")
+        for wording in wordings:
+            echo(f"  - {label(wording.field, wording.item_index)}: {safe_text(wording.text, 600)}")
+        echo(f"  written by {safe_text(wordings[0].model, 64)}, prompt {safe_text(wordings[0].prompt_version, 32)}")
     if reviews:
         echo("reviews:")
         for decision, reviewer, reason, status_after in reviews:
@@ -487,7 +526,7 @@ def findings_show(
                 reviews = [
                     (r.decision, r.reviewer_id, r.reason, r.status_after) for r in list_reviews(session, finding.id)
                 ]
-                _show(finding, details, reviews)
+                _show(finding, details, reviews, list_wordings(session, finding.id))
         finally:
             database.close()
     except ScopedAgentError as exc:
@@ -570,3 +609,230 @@ def report_export(
         typer.echo(f"sha256: {digest}")
     except ScopedAgentError as exc:
         raise _fail(exc) from None
+
+
+# --------------------------------------------------------------------------------------------------------- ai ----
+KEY_HELP = "the environment variable that holds the API key (never the key itself)"
+SENT = (
+    "what is sent: rule text only (the fixed sentences of a draft: conditions, preconditions, unknowns, attacker "
+    "position, basis, remediation, severity basis). It never sends what a target said, observation payloads, "
+    "artifacts, headers, bodies, certificates, credentials, the scope file, or reviewer names and reasons."
+)
+SAMPLE = "The certificate is self-signed, so it cannot be chained to a trusted authority."
+
+
+def _load_ai(directory: DataDir) -> AiConfig | None:
+    return load_config(directory.root)
+
+
+def _require_on(directory: DataDir) -> AiConfig:
+    config = _load_ai(directory)
+    if config is None or not config.enabled:
+        raise AiError(ErrorCode.AI_002, "AI wording is off: run `scoped-agent ai enable` to turn it on")
+    return config
+
+
+def _key_for(config: AiConfig, environ: Mapping[str, str]) -> str:
+    if config.provider == "offline":
+        return ""
+    key = environ.get(config.key_env, "")
+    if not key:
+        raise AiError(
+            ErrorCode.AI_002,
+            f"{config.key_env} is not set: export {config.key_env}=... in the shell that runs this command "
+            "(the key is never stored)",
+        )
+    return key
+
+
+def _key_line(config: AiConfig, environ: Mapping[str, str]) -> str | None:
+    if config.provider == "offline":
+        return None
+    if environ.get(config.key_env):
+        return f"{config.key_env} is set"
+    return f"{config.key_env} is not set: export {config.key_env}=... before you use it (the key is never stored)"
+
+
+@ai_app.command("status")
+def ai_status(data_dir: DataDirOption = None) -> None:
+    """Whether the model is on, which one, its limits and whether its key variable is set. Never prints the key."""
+    try:
+        config = _load_ai(_data_dir(data_dir))
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    if config is None or not config.enabled:
+        typer.echo("AI wording: off")
+        typer.echo("nothing in the tool needs it; turn it on with: scoped-agent ai enable")
+        return
+    echo = typer.echo
+    echo("AI wording: on")
+    echo(f"provider: {config.provider}")
+    echo(f"model: {config.model}")
+    line = _key_line(config, os.environ)
+    if line:
+        echo(f"key: {line}")
+    echo(f"hosts masked: {'yes' if config.mask_hosts else 'no'}")
+    limits = config.limits
+    echo(
+        f"limits: {limits.max_calls_per_run} calls per run, {limits.max_output_tokens} output tokens per call, "
+        f"{limits.max_total_tokens} tokens per run"
+    )
+    echo("sent: rule sentences only; never what a target said (docs/ai-adapter.md)")
+
+
+@ai_app.command("enable")
+def ai_enable(
+    provider: Annotated[
+        Provider, typer.Option("--provider", help="anthropic (Claude) or offline (no connection).")
+    ] = "anthropic",
+    model: Annotated[str | None, typer.Option("--model", help="The model to use. Default: claude-opus-5-5.")] = None,
+    key_env: Annotated[str, typer.Option("--key-env", help=KEY_HELP)] = "ANTHROPIC_API_KEY",
+    mask_hosts: Annotated[
+        bool, typer.Option("--mask-hosts/--no-mask-hosts", help="Replace host names before sending.")
+    ] = True,
+    yes: Annotated[bool, typer.Option("--yes", help="Do not ask for the typed confirmation.")] = False,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Turn the optional model on. Shows what is sent, asks you to type `enable`, writes a private file."""
+    try:
+        directory = _data_dir(data_dir)
+        try:
+            base = default_config(provider)
+            config = AiConfig(
+                enabled=True,
+                provider=provider,
+                model=model if model is not None else base.model,
+                key_env=key_env,
+                mask_hosts=mask_hosts,
+                limits=AiLimits(),
+            )
+        except ValidationError:
+            raise AiError(
+                ErrorCode.AI_001, "the model name or the key variable name is not valid (letters, digits, . _ - only)"
+            ) from None
+        _load_ai(directory)  # a broken or unsafe file is refused rather than replaced
+        if provider == "anthropic" and not yes:
+            typer.echo(f"AI wording would use {config.model} through the official SDK at api.anthropic.com.")
+            typer.echo(SENT)
+            typer.echo(
+                "Host names are replaced by placeholders before sending."
+                if mask_hosts
+                else "Host names are sent as they are (--no-mask-hosts)."
+            )
+            typer.echo("run never calls the model; only `scoped-agent findings reword` does, within a budget.")
+            if typer.prompt("Type enable to turn it on", default="", show_default=False).strip() != "enable":
+                raise PolicyError(ErrorCode.POLICY_003, "the confirmation did not match: nothing was changed")
+        save_config(directory.root, config)
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    echo = typer.echo
+    if provider == "offline":
+        echo(f"AI wording is on ({config.provider}, {config.model}): no connection is made")
+    else:
+        echo(f"AI wording is on ({config.provider}, {config.model})")
+        if not mask_hosts:
+            echo("warning: host names are sent as they are")
+        echo(_key_line(config, os.environ) or "")
+        echo("next: scoped-agent ai test, then scoped-agent findings reword RUN")
+
+
+@ai_app.command("disable")
+def ai_disable(data_dir: DataDirOption = None) -> None:
+    """Turn the model off. The configuration file and every saved wording stay."""
+    try:
+        directory = _data_dir(data_dir)
+        config = _load_ai(directory)
+        if config is None or not config.enabled:
+            typer.echo("AI wording was not on")
+            return
+        save_config(directory.root, config.model_copy(update={"enabled": False}))
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo("AI wording is off: the saved wordings stay and show under the rule's text")
+
+
+@ai_app.command("test")
+def ai_test(data_dir: DataDirOption = None) -> None:
+    """Send one fixed sample sentence to check the model, the key and the checks. Nothing is stored."""
+    try:
+        config = _require_on(_data_dir(data_dir))
+        key = _key_for(config, os.environ)
+        adapter = build_adapter(config, os.environ)
+        request = RewordRequest((RewordItem("condition-0", SAMPLE, 300),), PROMPT_VERSION)
+        try:
+            reply = adapter.reword(request)
+        except ModelUnavailable as exc:
+            typer.echo(f"{exc.status}: {exc.detail}")
+            raise typer.Exit(1) from None
+        text = reply.texts.get("condition-0", "")
+        reason = validate_item(SAMPLE, text, limit=300, secrets=[key] if key else [])
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    if reason is not None:
+        typer.echo(
+            f"rejected: the answer failed the check '{reason}' (the model works, but this answer would be dropped)"
+        )
+        raise typer.Exit(1)
+    typer.echo(f"accepted ({adapter.provider}, {adapter.model}; tokens {reply.input_tokens}+{reply.output_tokens})")
+    typer.echo(f"  sent:   {SAMPLE}")
+    typer.echo(f"  wording: {safe_text(text, 300)}")
+
+
+def _scope_hosts(scope_json: str) -> list[str]:
+    scope = json.loads(scope_json)
+    hosts = [e["host"] for e in scope.get("allowed_targets", []) if isinstance(e.get("host"), str)]
+    hosts += [a["host"] for a in scope.get("ai_targets", []) if isinstance(a.get("host"), str)]
+    return hosts
+
+
+@findings_app.command("reword")
+def findings_reword(
+    ctx: typer.Context,
+    run_id: Annotated[str, typer.Argument(help="The run whose drafts to reword.")],
+    finding_ref: Annotated[
+        str | None, typer.Option("--finding", help="Only this finding (id or first eight characters).")
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Ask the optional model to reword the sentences of a run's drafts. The rule's text is kept and shown first."""
+    app_ctx = _context(ctx)
+    try:
+        directory = _data_dir(data_dir)
+        config = _require_on(directory)
+        database = open_database(directory)
+        try:
+            with database.begin() as session:
+                run = session.get(Run, run_id)
+                if run is None:
+                    raise PolicyError(ErrorCode.POLICY_002, "no such run")
+                engagement = session.get(Engagement, run.engagement_id)
+                hosts = _scope_hosts(engagement.scope_json) if engagement is not None else []
+                chosen = resolve_finding(session, finding_ref).id if finding_ref is not None else None
+            key = _key_for(config, os.environ)
+            adapter = build_adapter(config, os.environ)
+            summary = reword_run(
+                database,
+                run_id,
+                adapter=adapter,
+                config=config,
+                hosts=hosts,
+                now=app_ctx.clock(),
+                finding_id=chosen,
+                secrets=[key] if key else [],
+            )
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    noun = "finding" if summary.findings == 1 else "findings"
+    typer.echo(
+        f"reworded {summary.reworded} sentences in {summary.findings} {noun} ({adapter.model}, prompt {PROMPT_VERSION})"
+    )
+    calls = ", ".join(f"{count} {name}" for name, count in sorted(summary.statuses.items())) or "0"
+    typer.echo(f"calls: {calls}   tokens: {summary.tokens}   kept as the rule wrote them: {summary.kept}")
+    typer.echo(
+        "note: the rule's own sentences are what every draft shows first; "
+        "a wording sits under them, labelled as not verified."
+    )
+    if any(name != "ok" for name in summary.statuses):
+        raise typer.Exit(2)

@@ -20,11 +20,13 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from scopedagent.ai.fields import label
 from scopedagent.domain.models import Artifact, AuditEvent, Engagement, Observation, Run, Target
 from scopedagent.errors import AuditError, ErrorCode, PolicyError, ReportError, StateError
 from scopedagent.pipeline.redact import redact_text
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.repositories import get_finding_details, list_findings, list_reviews
+from scopedagent.storage.wordings import list_wordings
 
 SCHEMA_VERSION = 1
 NOTES = (
@@ -34,6 +36,7 @@ NOTES = (
     "Evidence is stored redacted, and redaction is best effort: read this report before sharing it.",
     "Artifact contents are not part of this report: each artifact is identified by its sha256.",
 )
+MODEL_NOTE = "Where a model reworded a sentence, the wording is model-written and not verified; the rule's own sentence is authoritative."
 _LABELS = {
     "DRAFT": "DRAFT: not validated",
     "NEEDS_VALIDATION": "DRAFT: not validated",
@@ -95,7 +98,7 @@ def _finding_entry(session: Session, finding: Any, order: dict[str, int]) -> dic
         }
         for review in list_reviews(session, finding.id)
     ]
-    return {
+    entry: dict[str, Any] = {
         "id": finding.id,
         "status": finding.status,
         "label": _LABELS[finding.status],
@@ -106,6 +109,13 @@ def _finding_entry(session: Session, finding: Any, order: dict[str, int]) -> dic
         "details": details,
         "reviews": reviews,
     }
+    wordings = [
+        {"field": w.field, "index": w.item_index, "text": w.text, "model": w.model, "prompt_version": w.prompt_version}
+        for w in list_wordings(session, finding.id)
+    ]
+    if wordings:  # the key is absent when no model was used, so a report made without one is unchanged
+        entry["wordings"] = wordings
+    return entry
 
 
 def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[str, Any]:
@@ -148,6 +158,8 @@ def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[st
         select(AuditEvent.entry_hash).where(AuditEvent.run_id == run_id).order_by(AuditEvent.id.desc()).limit(1)
     )
     scope = json.loads(engagement.scope_json)
+    findings = [_finding_entry(session, f, order) for f in list_findings(session, run_id)]
+    notes = [*NOTES, *([MODEL_NOTE] if any("wordings" in f for f in findings) else [])]
     return {
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "scoped-agent", "version": tool_version},
@@ -171,9 +183,9 @@ def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[st
         "coverage": _coverage(run, observations),
         "observations": observations,
         "artifacts": artifacts,
-        "findings": [_finding_entry(session, f, order) for f in list_findings(session, run_id)],
+        "findings": findings,
         "audit": {"events": events, "chain_verified": verified, "head_hash": head},
-        "notes": list(NOTES),
+        "notes": notes,
     }
 
 
@@ -252,6 +264,13 @@ def _finding_markdown(finding: dict[str, Any]) -> list[str]:
         lines += ["", "Decision guide (advice, a person decides)", ""]
         lines += [f"- {md_escape(g['outcome'])} suggests {_code(g['suggests'])}" for g in details["decision_guide"]]
         lines += ["", f"Remediation: {md_escape(details['remediation'])}"]
+    if finding.get("wordings"):
+        lines += ["", "Wording by a model (not verified; the rule's text above is authoritative)", ""]
+        lines += [f"- {md_escape(label(w['field'], w['index']))}: {md_escape(w['text'])}" for w in finding["wordings"]]
+        lines += [
+            "",
+            f"Written by {md_escape(finding['wordings'][0]['model'])}, prompt {md_escape(finding['wordings'][0]['prompt_version'])}.",
+        ]
     lines += ["", "Reviews", ""]
     if finding["reviews"]:
         lines += [

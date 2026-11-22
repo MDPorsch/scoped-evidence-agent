@@ -78,4 +78,19 @@ milestone. Residual risks are listed, not hidden.
 * **SE-31 The step list is advice.** Validation steps are text built from templates. The tool does not run them (offline it cannot), and
   `rerun_library_probe` and `check_cors_for_declared_origin` cannot be acted on in 0.x (they need live mode, and a scope that declares
   an origin, which arrives with API targets).
-
+* **SE-32 The model can only reword, and it can reword badly.** The checks keep every number, date, version, header name, path and host
+  of the rule's sentence and refuse verdict words, markup and anything over the length limit, but they cannot tell that a sentence still
+  *means* the same. A plausible but slightly wrong wording passes. That is why the rule's own text is always shown first and the wording
+  is labelled as not verified (`docs/ai-adapter.md`).
+* **SE-33 Switching the model on sends rule sentences to a third party.** Only after `ai enable`, only from `findings reword` and
+  `ai test`, only the fixed sentences of a draft with hosts masked by default, to `api.anthropic.com`. A sentence may still name a
+  technology the engagement would rather not share (a protocol version, a header, a path); `--no-mask-hosts` sends host names too. The
+  provider's own retention and terms apply. Nothing is sent while AI is off, and a person can read exactly what would be sent in
+  `docs/ai-adapter.md` before typing `enable`.
+* **SE-34 The key lives in an environment variable.** The tool never stores, logs or prints it and discards a reply that contains it, but
+  anything else that can read the process environment can read it. A secret manager integration is not part of 0.x.
+* **SE-35 Calls are bounded per run, not per day.** `max_calls_per_run`, `max_output_tokens` and `max_total_tokens` stop a run; running
+  `findings reword` on many runs, or the SDK's own two retries of a failed request, can spend more in total. The provider's spending limit
+  is the real ceiling.
+* **SE-36 One model family, no fallback between providers.** 0.x supports Claude through the official SDK and an offline stand-in. If the
+  provider is down the drafts keep the rule's text and the call is recorded as `unavailable`.

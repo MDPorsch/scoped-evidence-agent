@@ -17,9 +17,10 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
                         │
               deterministic rules (M3, no model, no network) ──► finding drafts (linked to observations, immutable details)
                         │
-              [M4: redacted, capped, typed prompt] ──► model ──► validated claims
-                        │
               human review ──► report export (JSON, Markdown)
+
+   optional, off by default (M4):  a draft's rule sentences ──► [hosts masked] ──► model ──► checked, item by item
+                                   ──► `finding_wordings` (shown under the rule's text, labelled)
 ```
 
 ## What is stored, where, and for how long
@@ -33,7 +34,9 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 | Response body | **redacted** bytes only | `artifacts` + file | content-addressed file, `0600` | **30 days** by default (1 to 365), then purged with a receipt |
 | A compressed or binary body | **never** (a placeholder with its size is stored, marked `metadata_only`) | `artifacts` + file | | as above |
 | Cookies, API keys, authorization values | **never** (replaced before storage) | | `[REDACTED]` or a keyed fingerprint | n/a |
-| Prompt sent to a model (M4) | hash only by default | `audit_events` | model name, prompt version, input hash, budget | with the run |
+| Prompt sent to a model (M4) | **not stored**; its SHA-256 only | `model_calls` (append-only), `audit_events` | provider, model, prompt version, input hash, counts, tokens, status, a sanitized detail | with the run |
+| A model's wording (M4) | yes, only if every check passed | `finding_wordings` (append-only) | one sentence beside the rule's, with the hash of the original, the model and the prompt version | with the run |
+| The AI configuration (M4) | yes, no secret in it | `<data-dir>/ai.json`, mode `0600` | provider, model, the *name* of the key variable, limits, host masking | until the operator removes it |
 | Audit events | yes, append-only, chained | `audit_events` | | with the run |
 | Finding draft | yes | `finding_drafts`, `finding_details` (immutable), `finding_evidence` | class, conditions, assessment, validation steps, evidence ids | with the run |
 | Reviewer decision | yes, **redacted** | `finding_reviews` (append-only), `audit_events` | decision, reviewer id, reason, status after | with the run |
@@ -41,9 +44,11 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 
 ## What leaves the machine
 
-In 0.x, **nothing**. There is no network call. An optional model adapter (M4) is disabled by default; when
-enabled it receives only redacted, truncated, structured observations of one run, labelled untrusted, and never
-raw bodies unless the operator sets `send_raw_body` explicitly. A report is a local file the operator exports (`docs/correlator.md`, Reports): it holds hashes, drafts and reviews, never artifact content.
+In 0.x, **nothing by default**. `run` makes no network call. The optional model adapter (M4) is off until `ai enable`, and only
+`findings reword` and `ai test` ever call it. What it sends is **a draft's own rule sentences** (conditions, preconditions, unknowns,
+attacker position, basis, remediation, severity basis), with the engagement's host names replaced by placeholders: never an observation,
+an artifact, a header, a body, a certificate, a credential, the scope file or a reviewer's words. It goes to `api.anthropic.com` through the
+official SDK, with the key from an environment variable, and nowhere else (`docs/ai-adapter.md`). A report is a local file the operator exports (`docs/correlator.md`, Reports): it holds hashes, drafts and reviews, never artifact content.
 
 ## Permissions on disk
 

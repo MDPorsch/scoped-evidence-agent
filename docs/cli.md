@@ -18,11 +18,18 @@
 | `findings show ID` | One draft in full: class, CWE suggestions, conditions, quoted target data, exploitability assessment, validation steps with both branches, decision guide, remediation and reviews. `ID` is a full id or its first eight characters or more. | Read-only; nothing a target said appears except quoted data of a strict shape. |
 | `findings review ID --decision confirmed\|not_exploitable\|inconclusive --reviewer NAME --reason TEXT` | Record a person's decision. | You type the first eight characters of the finding id to confirm; there is no flag that skips it. Refuses a worker or a model, a blank reason or reviewer, and a finding that is not waiting for review. Redacts the reason, audits the decision. |
 | `report export RUN --format json\|md --output PATH` | One local report file built from the database. | A new file only: refused if it exists, if the directory does not exist, if a part of the path is a symbolic link or `..`, or if it is inside the data directory. Mode `0600`. Drafts labelled, no artifact content, no export time. Prints the file's sha256. |
+| `ai status` | Whether the optional model is on, the provider, the model, whether the key variable is set (never its value), the limits and what is sent. | Read-only. Off by default. |
+| `ai enable [--provider anthropic\|offline] [--model NAME] [--key-env VAR] [--no-mask-hosts] [--yes]` | Turn the model on: shows what is sent, asks you to type `enable`, writes `<data-dir>/ai.json` (mode `0600`, no secret in it). `--provider offline` needs no question and no key. | A typed confirmation unless `--yes`; the key is read from an environment variable and is never stored; a broken or unsafe `ai.json` is refused, never replaced. |
+| `ai disable` | Turn it off. The file and every saved wording stay. | |
+| `ai test` | One fixed sample sentence through the configured model, to check the key, the model and the checks. Nothing is stored. | Prints the status and a sanitized detail on failure; never a key or a reply that failed. |
+| `findings reword RUN [--finding ID]` | Ask the model to reword the sentences of a run's drafts that have no wording yet. The rule's text stays and is shown first; a wording is stored beside it, labelled as not verified. | The only command that calls a model besides `ai test`. Needs AI on and its key; a budget per run; every answer is checked item by item (`docs/ai-adapter.md`). |
 | `artifacts purge --before DATE` | Retention cleanup. | Only recorded sha256 files under the artifact root; symlinks refused; writes a receipt. |
 | `audit verify RUN` | Recomputes the audit hash chain of one run. | Read-only; exit `1` on a broken chain. |
 
 M1 delivers `--version`, `db upgrade`, `scope init`, `scope validate`, `runs list` and `audit verify`. M2 adds `run` and
-`observations show`. M3 adds drafting inside `run`, `findings list|show|review` and `report export`. The model arrives in M4.
+`observations show`. M3 adds drafting inside `run`, `findings list|show|review` and `report export`. M4 adds the optional model:
+`ai status|enable|disable|test` and `findings reword`. `run` never calls a model, with it on or off; when it is on and there are drafts, `run`
+ends with one line saying so.
 
 ## Exit codes (D-E09)
 
@@ -34,6 +41,10 @@ M1 delivers `--version`, `db upgrade`, `scope init`, `scope validate`, `runs lis
 | `3` | The collection was complete and there are drafts that need human review (`findings list RUN`). |
 
 Incomplete is never `0`. The report states the coverage: planned operations, completed, errored, refused.
+
+`findings reword` exits `0` when every call succeeded (even if some sentences were kept as the rule wrote them), `2` when any call was
+unavailable, refused, invalid or over budget, and `1` for a policy failure (AI off, key not set, no such run, a broken `ai.json`).
+`ai test` exits `1` when the answer is refused, unavailable, invalid or fails a check.
 
 ## Example (M1)
 

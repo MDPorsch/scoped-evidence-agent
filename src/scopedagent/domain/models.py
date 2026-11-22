@@ -286,6 +286,76 @@ class FindingReview(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
+class ModelCall(Base):
+    """One request to a model about one finding, or a refusal to make one. Append-only (D-E69)."""
+
+    __tablename__ = "model_calls"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_id", "run_id"], ["finding_drafts.id", "finding_drafts.run_id"], name="fk_model_calls_finding_run"
+        ),
+        CheckConstraint(
+            _in("status", ("ok", "unavailable", "refused", "invalid", "budget_exhausted")), name="ck_model_calls_status"
+        ),
+        CheckConstraint(
+            "items_sent >= 0 AND items_accepted >= 0 AND items_rejected >= 0 "
+            "AND items_accepted + items_rejected <= items_sent",
+            name="ck_model_calls_items",
+        ),
+        CheckConstraint("input_tokens >= 0 AND output_tokens >= 0", name="ck_model_calls_tokens"),
+        CheckConstraint("length(input_sha256) = 64", name="ck_model_calls_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String)
+    finding_id: Mapped[str] = mapped_column(String)
+    provider: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String)
+    prompt_version: Mapped[str] = mapped_column(String)
+    input_sha256: Mapped[str] = mapped_column(String)
+    items_sent: Mapped[int] = mapped_column(Integer)
+    items_accepted: Mapped[int] = mapped_column(Integer)
+    items_rejected: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String)
+    detail: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class FindingWording(Base):
+    """A model's wording of one rule sentence, kept beside it. Append-only, one per sentence (D-E66)."""
+
+    __tablename__ = "finding_wordings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_id", "run_id"], ["finding_drafts.id", "finding_drafts.run_id"], name="fk_wordings_finding_run"
+        ),
+        UniqueConstraint("finding_id", "field", "item_index", name="uq_finding_wordings_item"),
+        CheckConstraint(
+            _in(
+                "field",
+                ("condition", "precondition", "unknown", "attacker_position", "basis", "remediation", "severity_basis"),
+            ),
+            name="ck_finding_wordings_field",
+        ),
+        CheckConstraint("item_index >= 0", name="ck_finding_wordings_index"),
+        CheckConstraint("length(original_sha256) = 64", name="ck_finding_wordings_hash"),
+        CheckConstraint("length(text) BETWEEN 1 AND 500", name="ck_finding_wordings_text"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[str] = mapped_column(String)
+    run_id: Mapped[str] = mapped_column(String)
+    field: Mapped[str] = mapped_column(String)
+    item_index: Mapped[int] = mapped_column(Integer)
+    original_sha256: Mapped[str] = mapped_column(String)
+    text: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String)
+    prompt_version: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     __table_args__ = (
@@ -316,6 +386,8 @@ __all__ = [
     "FindingDraft",
     "FindingEvidence",
     "FindingReview",
+    "FindingWording",
+    "ModelCall",
     "Observation",
     "Run",
     "Target",
