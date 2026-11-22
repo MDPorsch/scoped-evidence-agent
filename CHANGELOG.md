@@ -4,6 +4,12 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
+### Added (M7 stage 1: OWASP benchmark catalogue; live hosts raised to 20)
+- `benchmarks status` and `benchmarks rules`; the closest OWASP category beside every rule in `findings show` and in both report formats, with a
+  `Benchmarks` section listing the editions and check dates used. Editions: OWASP Top 10 2025, API Security Top 10 2023, LLM Top 10 2026
+  (`docs/benchmarks.md`). The catalogue is a data file, validated on load, with a test that fails when a rule has no mapping.
+- Live mode may now name 20 hosts (was 10). Decisions D-E83 to D-E88 (`docs/active-testing-roadmap.md`).
+
 ### Added (M6: live remote mode; run once end to end against the author's own site)
 - `scoped-agent live run` collects DNS, TLS, HTTP, AI model-list and API evidence from the hosts a `mode: live` scope declares, inside an
   isolated container that installs a default-deny firewall, proves it with a self-test and drops every privilege **before** it is sent a job;

@@ -103,6 +103,10 @@ milestone. Residual risks are listed, not hidden.
 * **SE-45 The clock is yours.** The authorization window and approval expiry use the local clock.
 * **SE-46 What a CNAME or a redirect says is data.** It is recorded and never contacted: a target that points elsewhere is a finding for a
   person, and the scope grows only when you edit it.
+* **SE-47 An OWASP category is the closest match, not a diagnosis.** The mapping of a rule to a benchmark category is a judgment that a
+  person reviews; where the fit is loose the note says so. Most categories of the three lists have no rule yet (`benchmarks status` shows
+  them), so the tool does not "cover the OWASP Top 10": it labels what it checks. The editions change (the web list moved to 2025, the LLM
+  list to 2026), and a label can be out of date until the catalogue is updated (`docs/benchmarks.md`).
 * **SE-32 The model can only reword, and it can reword badly.** The checks keep every number, date, version, header name, path and host
   of the rule's sentence and refuse verdict words, markup and anything over the length limit, but they cannot tell that a sentence still
   *means* the same. A plausible but slightly wrong wording passes. That is why the rule's own text is always shown first and the wording

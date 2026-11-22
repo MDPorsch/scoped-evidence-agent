@@ -1,0 +1,116 @@
+# The benchmarks this tool maps its checks to, and which check answers which category (docs/benchmarks.md).
+#
+# This is data, not code: updating a benchmark is a reviewed edit of this file. Each benchmark names its edition, where the list was read
+# and the date it was last checked against that source; `scoped-agent benchmarks status` warns when a check is old.
+#
+# A mapping is the CLOSEST category, never a verdict: a draft is not a finding, and a category is not a diagnosis.
+schema_version: 1
+
+benchmarks:
+  - key: owasp-top10
+    title: OWASP Top 10
+    edition: '2025'
+    source: https://owasp.org/Top10/2025/
+    checked_on: '2026-11-22'
+    categories:
+      - {id: A01, name: Broken Access Control}
+      - {id: A02, name: Security Misconfiguration}
+      - {id: A03, name: Software Supply Chain Failures}
+      - {id: A04, name: Cryptographic Failures}
+      - {id: A05, name: Injection}
+      - {id: A06, name: Insecure Design}
+      - {id: A07, name: Authentication Failures}
+      - {id: A08, name: Software or Data Integrity Failures}
+      - {id: A09, name: Security Logging and Alerting Failures}
+      - {id: A10, name: Mishandling of Exceptional Conditions}
+
+  - key: owasp-api-top10
+    title: OWASP API Security Top 10
+    edition: '2023'
+    source: https://owasp.org/API-Security/editions/2023/en/0x11-t10/
+    checked_on: '2026-11-22'
+    categories:
+      - {id: API1, name: Broken Object Level Authorization}
+      - {id: API2, name: Broken Authentication}
+      - {id: API3, name: Broken Object Property Level Authorization}
+      - {id: API4, name: Unrestricted Resource Consumption}
+      - {id: API5, name: Broken Function Level Authorization}
+      - {id: API6, name: Unrestricted Access to Sensitive Business Flows}
+      - {id: API7, name: Server Side Request Forgery}
+      - {id: API8, name: Security Misconfiguration}
+      - {id: API9, name: Improper Inventory Management}
+      - {id: API10, name: Unsafe Consumption of APIs}
+
+  - key: owasp-llm-top10
+    title: OWASP Top 10 for LLM Applications
+    edition: '2026'
+    source: https://genai.owasp.org/resource/owasp-genai-llm-top-10-2026/
+    checked_on: '2026-11-22'
+    categories:
+      - {id: LLM01, name: Prompt Injection}
+      - {id: LLM02, name: Sensitive Information Disclosure}
+      - {id: LLM03, name: Excessive Agency}
+      - {id: LLM04, name: Supply Chain}
+      - {id: LLM05, name: Data and Model Poisoning}
+      - {id: LLM06, name: Unbounded Consumption}
+      - {id: LLM07, name: Misinformation}
+      - {id: LLM08, name: Hidden Context Exposure}
+      - {id: LLM09, name: Vector and Embedding Weaknesses}
+      - {id: LLM10, name: Improper Output Handling}
+
+# Every rule in the catalogue (docs/correlator.md) names at least one category. A test fails if a rule is added without one.
+rules:
+  R-TLS-01:
+    - benchmark: owasp-top10
+      category: A04
+      note: a weak protocol or a weak, expired or mismatched certificate is a failure to protect data in transit
+  R-HDR-01:
+    - benchmark: owasp-top10
+      category: A02
+      note: a missing hardening header is a missing configuration
+  R-INFO-01:
+    - benchmark: owasp-top10
+      category: A02
+      note: a product and version banner is a configuration choice
+  R-INFO-02:
+    - benchmark: owasp-top10
+      category: A02
+      note: closest category; a robots.txt listing is a hint to look, not itself a weakness
+  R-REDIR-01:
+    - benchmark: owasp-top10
+      category: A04
+      note: closest category for a cleartext redirect; an external redirect has no direct category in this edition
+  R-API-01:
+    - benchmark: owasp-api-top10
+      category: API9
+      note: documentation of an API that its audience may not be meant to see is an inventory question
+    - benchmark: owasp-top10
+      category: A02
+      note: the same observation read as a configuration choice
+  R-CORS-01:
+    - benchmark: owasp-top10
+      category: A02
+      note: a permissive cross-origin policy is a configuration choice
+    - benchmark: owasp-api-top10
+      category: API8
+      note: the same, for an API
+  R-DNS-01:
+    - benchmark: owasp-top10
+      category: A02
+      note: closest category; an alias that leaves the listed hosts is an inventory and configuration question
+  R-AI-01:
+    - benchmark: owasp-llm-top10
+      category: LLM01
+      note: a repeated canary is a sign the model followed an instruction placed in its input
+  R-AI-02:
+    - benchmark: owasp-llm-top10
+      category: LLM08
+      note: a canary from the hidden instructions appeared in an answer; called System Prompt Leakage (LLM07) in the 2025 edition
+  R-AI-03:
+    - benchmark: owasp-llm-top10
+      category: LLM02
+      note: a planted canary that stands for sensitive data appeared in an answer
+  R-AI-04:
+    - benchmark: owasp-llm-top10
+      category: LLM10
+      note: an answer carried markup, a link, code or a URL that something downstream could act on

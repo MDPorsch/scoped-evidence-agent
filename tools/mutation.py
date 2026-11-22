@@ -1710,6 +1710,48 @@ M.update({
     "live_rate_unbounded": [(LRL, "if not 1 <= per_second <= 10:", "if False:")],
 })  # fmt: skip
 
+# ================================================ M7 stage 1: the OWASP benchmark catalogue (D-E83 to D-E88) ====================
+BCT = f"{SRC}/benchmarks/catalogue.py"
+BYM = f"{SRC}/benchmarks/catalogue.yaml"
+M.update({
+    # ---- the loader -------------------------------------------------------------------------------------------------------
+    "bench_source_not_https": [(BCT, 'if not value.startswith("https://"):', "if False:")],
+    "bench_date_not_checked": [(BCT, "            dt.date.fromisoformat(value)\n", "            pass\n")],
+    "bench_duplicate_category_allowed": [(BCT, "        if len(set(ids)) != len(ids):", "        if False:")],
+    "bench_duplicate_benchmark_allowed": [(BCT, "        if len(set(keys)) != len(keys):", "        if False:")],
+    "bench_unknown_benchmark_allowed": [(BCT, "                if mapping.benchmark not in known:", "                if False:")],
+    "bench_unknown_category_allowed": [(BCT, "                if mapping.category not in known[mapping.benchmark]:", "                if False:")],
+    "bench_duplicate_mapping_allowed": [(BCT, "            if len(set(pairs)) != len(pairs):", "            if False:")],
+    "bench_catalogue_read_every_time": [(BCT, "@lru_cache(maxsize=1)\ndef catalogue()", "def catalogue()")],
+    # ---- reading it ---------------------------------------------------------------------------------------------------------
+    "bench_references_reversed": [(BCT, "    for mapping in cat.rules.get(rule_id, []):", "    for mapping in reversed(cat.rules.get(rule_id, [])):")],
+    "bench_label_without_edition": [(BCT, 'return f"{self.title} {self.edition}: {self.category} {self.name}"', 'return f"{self.title}: {self.category} {self.name}"')],
+    "bench_unmapped_never_found": [(BCT, "    return sorted(set(rule_ids) - set(cat.rules))", "    return []")],
+    "bench_unknown_rules_never_found": [(BCT, "    return sorted(set(cat.rules) - set(rule_ids))", "    return []")],
+    "bench_coverage_ignores_the_benchmark": [(BCT, "if any(m.benchmark == benchmark.key and m.category == category.id for m in mappings)", "if any(m.category == category.id for m in mappings)")],
+    "bench_age_sign_flipped": [(BCT, "return (today - benchmark.checked_date).days", "return (benchmark.checked_date - today).days")],
+    "bench_stale_limit_lowered": [(BCT, "STALE_AFTER_DAYS = 180", "STALE_AFTER_DAYS = 179")],
+    "bench_stale_on_the_limit": [(BCT, "return age_days(benchmark, today) > STALE_AFTER_DAYS", "return age_days(benchmark, today) >= STALE_AFTER_DAYS")],
+    # ---- the data (it is pinned twice: here as data, in the test as a table) ----------------------------------------------------
+    "bench_data_system_prompt_leakage_remapped": [(BYM, "      category: LLM08\n", "      category: LLM07\n")],
+    "bench_data_llm_edition_back_to_2025": [(BYM, "    edition: '2026'\n", "    edition: '2025'\n")],
+    "bench_data_tls_rule_remapped": [(BYM, "  R-TLS-01:\n    - benchmark: owasp-top10\n      category: A04\n", "  R-TLS-01:\n    - benchmark: owasp-top10\n      category: A02\n")],
+    # ---- the commands and the report ----------------------------------------------------------------------------------------
+    "bench_cli_stale_note_dropped": [(CLI, "        if is_stale(benchmark, today):", "        if False:")],
+    "bench_cli_covered_not_counted": [(CLI, "            covered += bool(rules)\n", "")],
+    "bench_cli_negative_age_shown": [(CLI, "        age = max(age_days(benchmark, today), 0)", "        age = age_days(benchmark, today)")],
+    "bench_cli_status_skips_the_rule_check": [(CLI, "    try:\n        _check_catalogue_matches_rules()\n        cat = catalogue()", "    try:\n        cat = catalogue()")],
+    "bench_cli_rules_skips_the_rule_check": [(CLI, "    try:\n        _check_catalogue_matches_rules()\n    except PolicyError as exc:\n        typer.echo(f\"error {exc}\", err=True)\n        raise typer.Exit(1) from None\n    for rule in RULES:", "    for rule in RULES:")],
+    "bench_cli_findings_show_without_categories": [(CLI, "    if references:\n        echo(", "    if False:\n        echo(")],
+    "bench_report_finding_without_categories": [(RPT, '"benchmarks": [r.as_dict() for r in references_for(details["rule_id"])] if details is not None else [],', '"benchmarks": [],')],
+    "bench_report_editions_not_listed": [(RPT, "            for b in catalogue().benchmarks\n", "            for b in []\n")],
+    "bench_report_markdown_line_dropped": [(RPT, '                if finding["benchmarks"]\n', "                if False\n")],
+    # ---- the live host cap (D-E86) ----------------------------------------------------------------------------------------------
+    "live_host_cap_back_to_ten": [(SCP, "MAX_LIVE_HOSTS = 20", "MAX_LIVE_HOSTS = 10")],
+    "live_host_cap_one_more": [(SCP, "MAX_LIVE_HOSTS = 20", "MAX_LIVE_HOSTS = 21")],
+    "live_host_cap_refuses_the_limit": [(SCP, "if len(hosts) > MAX_LIVE_HOSTS:", "if len(hosts) >= MAX_LIVE_HOSTS:")],
+})  # fmt: skip
+
 IGNORE = shutil.ignore_patterns(
     ".venv",
     ".git",
