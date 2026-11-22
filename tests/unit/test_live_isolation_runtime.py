@@ -17,7 +17,9 @@ from scopedagent.errors import ErrorCode, LiveFailed, LiveRefused
 from scopedagent.live import isolation, runtime
 from scopedagent.live.isolation import (
     FORBIDDEN,
+    OUTPUT_CHECK,
     apply_rules,
+    can_write,
     drop_privileges,
     effective_capabilities,
     gateway_address,
@@ -153,6 +155,27 @@ def test_a_container_that_is_isolated_passes_every_check() -> None:
     assert len([n for n in names if n.startswith("cannot reach")]) == len(FORBIDDEN)
     assert "has no name resolution" in names and "the rules permit 93.184.216.34:443" in names
     assert "runs unprivileged with no capability" in names
+
+
+def test_the_output_directory_check_is_present_only_when_it_was_probed_and_fails_when_it_is_not_writable() -> None:
+    assert OUTPUT_CHECK not in [c.name for c in run_self_test()]
+    good = [c for c in run_self_test(output_writable=True) if c.name == OUTPUT_CHECK]
+    bad = [c for c in run_self_test(output_writable=False) if c.name == OUTPUT_CHECK]
+    assert [c.passed for c in good] == [True] and [c.passed for c in bad] == [False]
+    assert "VM" in OUTPUT_CHECK and "home" in OUTPUT_CHECK  # the failure names the usual cause and its cure
+    assert "not writable" in bad[0].detail and "written" in good[0].detail
+
+
+def test_can_write_leaves_nothing_behind_and_says_no_for_a_directory_it_cannot_use(tmp_path: Path) -> None:
+    assert can_write(tmp_path) is True and list(tmp_path.iterdir()) == []
+    assert can_write(tmp_path / "missing") is False
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        assert can_write(locked) is (os.geteuid() == 0)  # root can write anywhere; anyone else cannot
+    finally:
+        locked.chmod(0o700)
 
 
 def test_every_forbidden_destination_is_tried_including_the_metadata_address_and_the_gateway() -> None:

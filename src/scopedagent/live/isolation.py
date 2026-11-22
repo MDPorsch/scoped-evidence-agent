@@ -26,6 +26,7 @@ Run = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 Connect = Callable[[str, int, float], object]
 NOBODY = 65534
 SELF_TEST_TIMEOUT = 2.0
+OUTPUT_CHECK = "can write to the output directory (VM Docker: data dir under home)"
 
 # Destinations the container must NOT be able to reach (RFC 5737 / RFC 3849 documentation addresses, a private range and the
 # cloud metadata address). None of them is a real service: a connection that succeeds means the firewall is not doing its job.
@@ -126,6 +127,7 @@ def self_test(
     resolve: Callable[[str], object] = lambda host: socket.getaddrinfo(host, None),
     uid: Callable[[], int] = os.getuid,
     effective_caps: str = "",
+    output_writable: bool | None = None,
 ) -> list[ProofCheck]:
     """Every check the controller will insist on. A check passes only when the thing that must not happen did not."""
     checks: list[ProofCheck] = []
@@ -165,7 +167,28 @@ def self_test(
             detail=f"uid {uid()}, capabilities {effective_caps or 'unknown'}",
         )
     )
+    if output_writable is not None:
+        checks.append(
+            ProofCheck(
+                name=OUTPUT_CHECK,
+                passed=output_writable,
+                detail="a probe file was written and removed"
+                if output_writable
+                else "not writable: with Docker in a VM (Colima, Docker Desktop) keep the data directory under your home",
+            )
+        )
     return checks
+
+
+def can_write(directory: Path) -> bool:
+    """Whether the collector (already unprivileged) can create a file in `directory`. The probe is removed again."""
+    probe = directory / ".writable-probe"
+    try:
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError:
+        return False
+    return True
 
 
 def effective_capabilities(status_text: str) -> str:
@@ -203,7 +226,12 @@ def main(stdin: IO[str], stdout: IO[str], out_dir: Path) -> int:  # pragma: no c
     route = Path("/proc/net/route").read_text(encoding="utf-8")
     drop_privileges()
     caps = effective_capabilities(Path("/proc/self/status").read_text(encoding="utf-8"))
-    proof = Proof(allowed=pairs, checks=self_test(pairs, rules_text=rules, route_table=route, effective_caps=caps))
+    proof = Proof(
+        allowed=pairs,
+        checks=self_test(
+            pairs, rules_text=rules, route_table=route, effective_caps=caps, output_writable=can_write(out_dir)
+        ),
+    )
     stdout.write(proof.model_dump_json() + "\n")
     stdout.flush()
     line = _read_line(stdin, 4 * 1024 * 1024)

@@ -4,7 +4,7 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
-### Added (M6: live remote mode; the container isolation has run in CI only, nothing has been pointed at a real target)
+### Added (M6: live remote mode; run once end to end against the author's own site)
 - `scoped-agent live run` collects DNS, TLS, HTTP, AI model-list and API evidence from the hosts a `mode: live` scope declares, inside an
   isolated container that installs a default-deny firewall, proves it with a self-test and drops every privilege **before** it is sent a job;
   the controller refuses to continue unless every check passed (`docs/remote-live-design.md`). `run` still never opens a socket.
@@ -14,7 +14,7 @@ Format: Keep a Changelog; versions follow SemVer.
   IPv4-embedding IPv6 never); a refused host is not contacted and its operations are recorded as refused. A credential is named
   by `--credential NAME=ENVVAR`, reaches only the declared host over verified TLS, and a leak guard fails the run if any form of it is in any
   stored byte. What the sandbox returns is untrusted: only two kinds of file, strict envelopes, re-redacted artifacts.
-- Migration `0005`: append-only `approvals`, `approval_revocations` and `live_runs`. Decisions D-E74 to D-E81.
+- Migration `0005`: append-only `approvals`, `approval_revocations` and `live_runs`. Decisions D-E74 to D-E82.
 
 ### Added (M5: API-target scopes, offline)
 - A scope may list `api_targets` (`docs/api-targets.md`): REST APIs with a base path, named principals, explicit `GET`/`HEAD` endpoints

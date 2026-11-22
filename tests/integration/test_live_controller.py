@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import socket
+import stat
 import tempfile
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -22,7 +23,8 @@ from scopedagent.domain.outcome import ExitCode
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import ErrorCode, LiveFailed, LiveRefused, PolicyError
 from scopedagent.live import collector
-from scopedagent.live.controller import LiveRequest, run_live
+from scopedagent.live.controller import LiveRequest, run_live, work_directory
+from scopedagent.live.isolation import OUTPUT_CHECK
 from scopedagent.live.protocol import AllowedPair, Job, Proof, ProofCheck
 from scopedagent.live.ratelimit import RateLimiter
 from scopedagent.output.report import build_report, render_json, render_markdown
@@ -72,6 +74,7 @@ class Container:
             "cannot reach a documentation address (IPv4)",
             "has no name resolution",
             "runs unprivileged with no capability",
+            OUTPUT_CHECK,
         )
         checks = [ProofCheck(name=n, passed=n not in self.failing_checks, detail="test") for n in names]
         return Proof(allowed=self.allowed_override if self.allowed_override is not None else allow, checks=checks)
@@ -245,7 +248,7 @@ def test_the_run_leaves_the_record_of_what_it_was_done_under(env2: Any) -> None:
     assert row[1] == "ACME-2026-114" and row[2] == IMAGE and PUBLIC in row[4] and "cannot reach" in row[3]
     actions = [e[0] for e in events]
     assert {"live.isolation", "live.authorized", "live.resolution"} <= set(actions)
-    assert any(e[0] == "live.isolation" and "3 of 3 checks passed" in e[2] for e in events)
+    assert any(e[0] == "live.isolation" and "4 of 4 checks passed" in e[2] for e in events)
     assert any(e[0] == "live.authorized" and "ACME-2026-114" in e[2] and row[0] in e[2] for e in events)
 
 
@@ -347,6 +350,39 @@ def test_the_temporary_directory_is_removed_after_a_run_and_after_a_failure(
         assert list(scratch.iterdir()) == []
     finally:
         close()
+
+
+def test_a_work_root_holds_the_collectors_output_directory_and_is_left_empty(env2: Any, tmp_path: Path) -> None:
+    root = work_directory(tmp_path / "data")
+    seen: list[Path] = []
+
+    class Spy(Container):
+        def start(self, *, credential_envs: list[str], out_dir: Path) -> Container:
+            seen.append(out_dir)
+            return super().start(credential_envs=credential_envs, out_dir=out_dir)
+
+    server, close = serve(site)
+    try:
+        db, store, _ = env2
+        scope = live_scope(server.port)
+        request = LiveRequest(
+            loaded=scope, human=HUMAN, now=NOW, approval_id=approve(db, scope), acknowledged=True, image=IMAGE,
+            credentials={},
+        )  # fmt: skip
+        run_live(db, store, request, runtime=Spy(server.port), environ={}, lookup=lookup([PUBLIC]), work_root=root)
+    finally:
+        close()
+    assert len(seen) == 1 and seen[0].parent.parent == root and seen[0].name == "out"
+    assert list(root.iterdir()) == []
+
+
+def test_the_work_directory_is_private_and_made_where_asked(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    root = work_directory(data)
+    assert root == data / "live-work" and root.is_dir() and stat.S_IMODE(root.stat().st_mode) == 0o700
+    root.chmod(0o755)  # something loosened it: asking again tightens it
+    assert work_directory(data) == root and stat.S_IMODE(root.stat().st_mode) == 0o700
 
 
 # --------------------------------------------------------------------------------- the gates, in order ----
@@ -503,7 +539,12 @@ def test_each_host_is_resolved_once_however_many_operations_it_has(env2: Any) ->
 # --------------------------------------------------------------------------------------------- the proof ----
 @pytest.mark.parametrize(
     "failing",
-    ["cannot reach a documentation address (IPv4)", "has no name resolution", "runs unprivileged with no capability"],
+    [
+        "cannot reach a documentation address (IPv4)",
+        "has no name resolution",
+        "runs unprivileged with no capability",
+        OUTPUT_CHECK,
+    ],
 )
 def test_a_failed_self_test_means_nothing_is_sent_nothing_is_collected_and_no_run_exists(
     env2: Any, failing: str

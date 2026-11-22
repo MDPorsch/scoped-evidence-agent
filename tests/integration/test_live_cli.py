@@ -4,6 +4,7 @@ every gate; and with the stand-in container the command prints what a person nee
 from __future__ import annotations
 
 import socket
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -207,6 +208,9 @@ def test_a_live_run_by_command_prints_the_attestation_the_result_and_exits_with_
     finally:
         close()
     assert out.exit_code in (0, 3), out.output
+    work = Path(data) / "live-work"
+    assert WORK_ROOTS[-1] == work  # inside the data directory, so a VM-based Docker shares it
+    assert stat.S_IMODE(work.stat().st_mode) == 0o700 and list(work.iterdir()) == []
     assert (
         "Authorization was declared by the operator for engagement ACME-2026-114" in out.output
         and "not verify it" in out.output
@@ -215,9 +219,23 @@ def test_a_live_run_by_command_prints_the_attestation_the_result_and_exits_with_
     assert "run " in out.output and socket is not None
 
 
+WORK_ROOTS: list[Any] = []
+
+
 def _with_lookup(real: Any) -> Any:
-    def run(db: Any, store: Any, request: Any, *, runtime: Any, environ: Any, lookup: Any = None) -> Any:
-        return real(db, store, request, runtime=runtime, environ=environ, lookup=lambda host: ([PUBLIC], None))
+    def run(
+        db: Any, store: Any, request: Any, *, runtime: Any, environ: Any, lookup: Any = None, work_root: Any = None
+    ) -> Any:
+        WORK_ROOTS.append(work_root)
+        return real(
+            db,
+            store,
+            request,
+            runtime=runtime,
+            environ=environ,
+            lookup=lambda host: ([PUBLIC], None),
+            work_root=work_root,
+        )
 
     return run
 

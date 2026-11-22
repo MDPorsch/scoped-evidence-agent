@@ -1,9 +1,9 @@
 # Live remote mode: design for your review
 
 **Status: approved by the owner on 2026-11-20 (D-E37 to D-E47). Built in M6 (this change), as the last milestone, and stopped for
-review. The controller has been exercised only against loopback servers with the container replaced by a stand-in. The container isolation itself
-has been run for real only in CI (six tests, one Linux runner, see `docs/milestones/M6.md`); no `live run` has gone end to end through a real
-container to a real server (D-E46; see "How it is built" at the end).** By D-E47 it is built last, after the offline collectors,
+review. The controller has been exercised against loopback servers with the container replaced by a stand-in, and once end to end through a real
+container against the owner's own site. The container isolation has been run for real in CI and on a Mac (seven tests, see
+`docs/milestones/M6.md`); nothing else has been targeted (D-E46; see "How it is built" at the end).** By D-E47 it is built last, after the offline collectors,
 test-first, and then stops again for review. You asked for this tool to work
 against remote, authorized targets too. That changes **egress** (the tool opens connections to networks you do not control),
 **token handling** (an AI endpoint's API key crosses a network) and, for AI probes, **what the tool sends** (a POST). You told me
@@ -246,7 +246,7 @@ A run whose proof fails never exists.
 
 ### Decisions made in the build (approved; the stop for review is D-E47)
 
-Status (2026-11-21): **D-E74 to D-E81 are approved by the owner.** That approves the decisions, not use: live mode still stops at D-E47 (not merged, and not to be used on a host you do not own, until one `live run` against a lab you own has worked end to end).
+Status (2026-11-22): **D-E74 to D-E81 are approved by the owner (2026-11-21); D-E82 is new and pending.** That approves the decisions, not use: live mode still stops at D-E47 (not merged, and not to be used on a host you do not own, until one `live run` against a lab you own has worked end to end).
 
 | ID | Decision |
 |---|---|
@@ -256,5 +256,6 @@ Status (2026-11-21): **D-E74 to D-E81 are approved by the owner.** That approves
 | D-E77 | **The stored adapter names stay `offline_*`:** they name the normalisers, which are shared. A live run is marked by `runs.mode = live` and its `live_runs` row. In a live run the stored source hash is the SHA-256 of the sandbox's own source-hash line (the controller never sees the bytes). *Approved by the owner, 2026-11-21.* |
 | D-E78 | **The controller proves before it sends:** the allow-list goes in first, the proof comes out, and the job (with its credentials' *names*) is sent only after the proof is verified. There is no flag that skips it. *Approved by the owner, 2026-11-21.* |
 | D-E79 | **Certificates are parsed with `cryptography`, installed in the container image only** (the `live` extra); the controller and the offline tool do not need it. *Approved by the owner, 2026-11-21.* |
-| D-E80 | **Not called safe.** The container isolation has been run for real only in CI (a GitHub-hosted Ubuntu runner: the proof, the firewall against forbidden addresses, a positive control, the posture, a refused stray job); the whole `live run` has not gone end to end through a real container to a real server, no other runtime or host was tried, and nothing was pointed at a real target. The report of a live run states the proof it got. The first real exercise should be against a lab target you own, before anything else. *Approved by the owner, 2026-11-21.* |
+| D-E80 | **Not called safe.** The container isolation has been run for real in CI (a GitHub-hosted Ubuntu runner) and on the owner's Mac (Colima), and one `live run` has gone end to end against the owner's own site (`breachrr.com`, 3 GETs, DNS and TLS), with the proof passing. No other runtime or host was tried, nothing with a login, an API or an AI endpoint was targeted, and a clean first run proves nothing about the next one. The report of a live run states the proof it got. *Approved by the owner, 2026-11-21.* |
 | D-E81 | **A locally built image is pinned by its ID.** The first real CI build showed that the documented form `name@sha256:<image id>` makes Docker try to *pull* `name` from a registry: a repository digest exists only after a push. `--image` therefore also accepts the bare `sha256:<64 hex>` ID of an image built here, which is a hash of the image's content and so as fixed as a digest. A tag is still refused. (Found by the first real run of the container job.) *Approved by the owner, 2026-11-21.* |
+| D-E82 | **The collector proves it can write to its output directory, and the work directory lives in the data directory.** The first run on a Mac failed because the output directory was in the system temp folder, which a VM-based Docker (Colima, Docker Desktop) does not share; the controller could only say "exited with status 1". Now the container adds one check to its proof (it writes and removes a probe file as the unprivileged user), so a mis-mounted directory ends the run with `LIVE-003` before anything is sent, and the controller keeps its per-run directory under `<data dir>/live-work` (mode `0700`, emptied after each run). A data directory outside your home still fails, clearly. (Found by the first real run; **pending your approval**.) |

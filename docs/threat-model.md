@@ -167,7 +167,7 @@ decides (SE-06).
 | Run outside the engagement or by accident from CI | the window, the acknowledgement and the approval; `run` can never start a live scope | LV-01, LV-02 |
 | The tool becomes a scanner | no discovery; at most 10 listed hosts; nothing learned from a target is contacted | LV-03 |
 
-*Residual:* the real container isolation has been run in CI only, on one runner, and no `live run` has gone end to end (SE-41); a public address cannot be pinned to "the client's" machine (SE-42); authorization is a declaration (SE-43).
+*Residual:* the real container isolation has been run in CI and on one Mac, and one `live run` has gone end to end against the author's own site (SE-41); a public address cannot be pinned to "the client's" machine (SE-42); authorization is a declaration (SE-43).
 
 ## 5. Other threats
 

@@ -5,20 +5,37 @@ container runtime they cannot run, and that is a statement about the machine, no
 from __future__ import annotations
 
 import ipaddress
+import json
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from scopedagent.live.protocol import AllowedPair, Job
+from scopedagent.live.isolation import OUTPUT_CHECK
+from scopedagent.live.protocol import AllowedPair, Job, Proof
 from scopedagent.live.runtime import DockerRuntime, docker_command
 
 pytestmark = [pytest.mark.milestone("M6"), pytest.mark.container]
 
 ROOT = Path(__file__).resolve().parents[2]
 PINNED = AllowedPair(address="198.51.100.7", port=80)  # a documentation address: pinned, so the firewall must permit it
+
+
+@pytest.fixture
+def out_dir() -> Iterator[Path]:
+    """The collector's output directory, as the controller makes it: world-writable (the collector is unprivileged) and under the
+    home directory, which Colima and Docker Desktop share with their VM (the system temp directory is not shared there)."""
+    base = Path.home() / ".cache" / "scopedagent-container-tests"
+    base.mkdir(parents=True, exist_ok=True)
+    path = Path(tempfile.mkdtemp(dir=base))
+    path.chmod(0o777)
+    yield path
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture(scope="module")
@@ -34,8 +51,8 @@ def image() -> str:
     ]  # the image ID, sha256:...: a locally built image has no repository digest
 
 
-def test_the_container_proves_its_isolation_with_every_check_passing(image: str, tmp_path: Path) -> None:
-    session = DockerRuntime(image).start(credential_envs=[], out_dir=tmp_path)
+def test_the_container_proves_its_isolation_with_every_check_passing(image: str, out_dir: Path) -> None:
+    session = DockerRuntime(image).start(credential_envs=[], out_dir=out_dir)
     try:
         proof = session.exchange_proof([PINNED])
     finally:
@@ -46,10 +63,28 @@ def test_the_container_proves_its_isolation_with_every_check_passing(image: str,
     names = {c.name for c in proof.checks}
     assert "has no name resolution" in names and "runs unprivileged with no capability" in names
     assert any(n.startswith("cannot reach the cloud metadata address") for n in names)
+    assert OUTPUT_CHECK in names  # the unprivileged collector can write to the output directory it was given
+
+
+def test_an_output_directory_the_collector_cannot_write_to_fails_the_proof_before_any_job(
+    image: str, out_dir: Path
+) -> None:
+    """What went wrong on the first run on a Mac: the directory was not the one the VM shares, so the unprivileged collector could
+    not write its results. The container now says so in its proof, before any request is sent. (A root-owned `/out` stands in for
+    it, the same on every platform: file sharing on a Mac would let a merely `chmod`-ed directory through.)"""
+    command = docker_command(image, out_dir, "scopedagent-unwritable-output", [])
+    mount = command.index("-v")
+    command[mount : mount + 2] = ["--tmpfs", "/out:rw,mode=0755"]
+    allow = json.dumps({"allow": [PINNED.model_dump()]}) + "\n"
+    result = subprocess.run(command, input=allow, capture_output=True, text=True, check=False, timeout=120)
+    proof = Proof.model_validate_json(result.stdout.splitlines()[0])
+    assert [c.name for c in proof.checks if not c.passed] == [OUTPUT_CHECK], proof
+    assert result.returncode == 3  # no job was ever sent: stdin closed after the proof
+    assert list(out_dir.iterdir()) == []
 
 
 def test_a_collector_that_connects_elsewhere_fails_at_the_firewall_even_with_the_policy_bypassed(
-    image: str, tmp_path: Path
+    image: str, out_dir: Path
 ) -> None:
     """The controller's address policy is not involved here at all: the code inside the container simply tries to connect to
     addresses outside the allow-list, after the real firewall and the real privilege drop, and every attempt must fail."""
@@ -69,7 +104,7 @@ def test_a_collector_that_connects_elsewhere_fails_at_the_firewall_even_with_the
         "print('REACHED', bad)\n"
         "sys.exit(1 if bad else 0)\n"
     )
-    command = docker_command(image, tmp_path, "scopedagent-firewall-test", [])
+    command = docker_command(image, out_dir, "scopedagent-firewall-test", [])
     command[command.index("--entrypoint") : command.index("--entrypoint") + 2] = ["--entrypoint", "python"]
     command = [*command[: command.index(image)], image, "-c", script]
     result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
@@ -77,7 +112,7 @@ def test_a_collector_that_connects_elsewhere_fails_at_the_firewall_even_with_the
     assert "REACHED []" in result.stdout
 
 
-def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_not(image: str, tmp_path: Path) -> None:
+def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_not(image: str, out_dir: Path) -> None:
     """The positive control the test above lacks: a firewall that blocked everything would pass that one.
 
     Two listeners run in a helper container on the Docker bridge (so this process opens no socket and the test guard stays as it
@@ -107,7 +142,7 @@ def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_no
         else:
             raise AssertionError("the helper listener did not start: " + logs.stdout + logs.stderr[-500:])
         inspected = subprocess.run(
-            ["docker", "inspect", "--format", "{{.NetworkSettings.IPAddress}}", name],
+            ["docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", name],  # not .NetworkSettings.IPAddress: Docker 29 removed it
             capture_output=True, text=True, check=False, timeout=60,
         )  # fmt: skip
         address = inspected.stdout.strip()
@@ -128,7 +163,7 @@ def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_no
             f"print('OTHER_PORT', reach({address!r}, 9002))\n"
             "print('DOCUMENTATION', reach('192.0.2.1', 80))\n"
         )
-        command = docker_command(image, tmp_path, "scopedagent-positive-control", [])
+        command = docker_command(image, out_dir, "scopedagent-positive-control", [])
         command[command.index("--entrypoint") : command.index("--entrypoint") + 2] = ["--entrypoint", "python"]
         command = [*command[: command.index(image)], image, "-c", script]
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
@@ -139,9 +174,9 @@ def test_an_allowed_pair_is_reachable_and_the_same_address_on_another_port_is_no
     assert "OTHER_PORT False" in result.stdout and "DOCUMENTATION False" in result.stdout, result.stdout
 
 
-def test_the_container_posture_is_what_the_command_says(image: str, tmp_path: Path) -> None:
+def test_the_container_posture_is_what_the_command_says(image: str, out_dir: Path) -> None:
     script = "import os, sys\nprint('ROOTFS_RO', not os.access('/opt', os.W_OK))\nprint('UID', os.getuid())\n"
-    command = docker_command(image, tmp_path, "scopedagent-posture-test", [])
+    command = docker_command(image, out_dir, "scopedagent-posture-test", [])
     command = [*command[: command.index(image)], image, "-c", script]
     result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
     assert result.returncode == 0, result.stderr[-1500:]
@@ -149,8 +184,8 @@ def test_the_container_posture_is_what_the_command_says(image: str, tmp_path: Pa
     assert "ROOTFS_RO True" in result.stdout and "UID 0" in result.stdout, result.stdout
 
 
-def test_a_job_outside_the_allow_list_is_refused_by_the_container_itself(image: str, tmp_path: Path) -> None:
-    session = DockerRuntime(image).start(credential_envs=[], out_dir=tmp_path)
+def test_a_job_outside_the_allow_list_is_refused_by_the_container_itself(image: str, out_dir: Path) -> None:
+    session = DockerRuntime(image).start(credential_envs=[], out_dir=out_dir)
     try:
         session.exchange_proof([PINNED])
         stray = Job.model_validate(
@@ -162,7 +197,7 @@ def test_a_job_outside_the_allow_list_is_refused_by_the_container_itself(image: 
         assert session.finish() == 4  # an operation outside the allow-list the firewall was built from
     finally:
         session.abort()
-    assert list(tmp_path.iterdir()) == []
+    assert list(out_dir.iterdir()) == []
 
 
 def test_the_runtime_module_is_importable_on_this_platform() -> None:

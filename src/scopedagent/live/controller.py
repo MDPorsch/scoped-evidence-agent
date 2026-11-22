@@ -233,6 +233,17 @@ def _store_live_record(
             )
 
 
+def work_directory(data_root: Path) -> Path:
+    """Where a live run keeps the collector's output directory: inside the (private) data directory, not the system temp.
+
+    A container runtime that runs in a VM (Colima, Docker Desktop) shares your home with the VM but not `/var/folders`, so a
+    directory in the system temp is not the one the collector writes to there."""
+    root = data_root / "live-work"
+    root.mkdir(mode=0o700, exist_ok=True)
+    root.chmod(0o700)
+    return root
+
+
 def run_live(
     db: Database,
     store: ArtifactStore,
@@ -241,6 +252,7 @@ def run_live(
     runtime: Runtime,
     environ: Mapping[str, str],
     lookup: Lookup = system_lookup,
+    work_root: Path | None = None,
 ) -> RunResult:
     loaded = request.loaded
     validate_image(request.image)
@@ -257,7 +269,7 @@ def run_live(
     allow = sorted(
         {AllowedPair(address=o.address, port=o.port) for o in job.operations}, key=lambda p: (p.address, p.port)
     )
-    parent = Path(tempfile.mkdtemp(prefix="scopedagent-live-"))
+    parent = Path(tempfile.mkdtemp(prefix="scopedagent-live-", dir=work_root))
     out_dir = parent / "out"
     out_dir.mkdir()
     out_dir.chmod(0o777)  # the collector runs as an unprivileged user; the directory above it is private to this user

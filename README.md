@@ -6,8 +6,9 @@ observations from them with reviewed rules, and **stops for a person to decide**
 and never decides on its own that something is a vulnerability.
 
 > **Status: pre-alpha, not on PyPI.** Everything below works on recorded answers (fixture packs) without touching a network.
-> Collecting from real hosts (`live run`) is built but its container isolation has run **in CI only**: no `live run` has gone end to end
-> against a real server, so it must not be pointed at anything you do not own. See [what is and is not proved](#what-is-and-is-not-proved).
+> Collecting from real hosts (`live run`) is built and has been run once end to end, against its author's own site, with the container's
+> isolation proof passing. That is one run on one host: it must not be pointed at anything you do not own. See
+> [what is and is not proved](#what-is-and-is-not-proved).
 
 ## What it does, in order
 
@@ -130,7 +131,7 @@ Only a draft's rule sentences are sent (host names become placeholders), never a
 a sentence that changes a number, a name or a host, or adds a verdict word, is dropped. The model has no tools, cannot choose targets and
 cannot mark anything verified. `run` never calls a model. To try the path with no key: `scoped-agent ai enable --provider offline`.
 
-## Live remote collection (built; not proved end to end)
+## Live remote collection (built; run once, against the author's own site)
 
 `live run` is the only command that can send anything to a network you do not control, and it refuses to start unless **all** of these hold:
 
@@ -154,8 +155,9 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
 
 * **Proved by tests:** the scope checks, redaction, the audit chain, the state machines, the rules, the review gates, the AI-wording checks and
   the live gates (over 3,000 tests with 100% line and branch coverage, and a mutation suite of about 1,500 deliberately broken variants).
-* **Run for real, in CI only:** the container's firewall and isolation proof, on one Linux runner, with a positive and a negative control.
-* **Not proved:** a whole `live run` against a real server; other container runtimes; real name resolution; any real target. Nothing here
+* **Run for real:** the container's firewall and isolation proof (positive and negative controls) in CI on a Linux runner and on a Mac with
+  Colima, and one `live run` end to end against the author's own site (DNS, TLS and three GETs), whose proof passed.
+* **Not proved:** a second host, a login, an API or AI target, IPv6, other container runtimes (Docker Desktop, Podman, rootless). Nothing here
   proves anyone authorized anything: the scope file is a restriction, not proof of authorization, and the tool says so in every output.
 * **What it will not do:** write or run an exploit, a payload or an attack chain; discover hosts or walk ranges; follow what a target tells it
   to do; decide that something is a vulnerability. No draft is not proof that nothing is wrong: twelve rules cover only some flaws (`LIMITATIONS.md`).

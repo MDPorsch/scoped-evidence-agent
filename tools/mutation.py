@@ -1631,6 +1631,15 @@ M.update({
     "live_revocation_needs_no_reason": [(LAP, "    if not cleaned:\n        raise LiveRefused(ErrorCode.LIVE_002, \"a revocation needs a reason\")", "    if False:\n        raise LiveRefused(ErrorCode.LIVE_002, \"a revocation needs a reason\")")],
     "live_revocation_twice_allowed": [(LAP, "    if session.get(ApprovalRevocation, approval_id) is not None:\n        raise LiveRefused", "    if False:\n        raise LiveRefused")],
     # ---- the controller --------------------------------------------------------------------------------------------
+    # ---- the output directory: the collector proves it can write there; the work directory is inside the data directory --------
+    "live_output_check_not_added": [(LISO, "    if output_writable is not None:\n        checks.append(", "    if False:\n        checks.append(")],
+    "live_output_check_always_passes": [(LISO, "                passed=output_writable,\n", "                passed=True,\n")],
+    "live_can_write_always_true": [(LISO, "    except OSError:\n        return False\n    return True", "    except OSError:\n        return True\n    return True")],
+    "live_write_probe_left_behind": [(LISO, "        probe.write_bytes(b\"\")\n        probe.unlink()\n", "        probe.write_bytes(b\"\")\n")],
+    "live_work_root_ignored": [(LCO, 'tempfile.mkdtemp(prefix="scopedagent-live-", dir=work_root)', 'tempfile.mkdtemp(prefix="scopedagent-live-")')],
+    "live_work_directory_not_tightened": [(LCO, "    root.mkdir(mode=0o700, exist_ok=True)\n    root.chmod(0o700)\n", "    root.mkdir(mode=0o700, exist_ok=True)\n")],
+    "live_work_directory_not_private_at_all": [(LCO, "    root.mkdir(mode=0o700, exist_ok=True)\n    root.chmod(0o700)\n", "    root.mkdir(exist_ok=True)\n")],
+    "cli_live_work_root_not_passed": [(CLI, "                work_root=work_directory(directory.root),\n", "")],
     "live_proof_failures_ignored": [(LCO, "    if failed:\n        raise LiveFailed(ErrorCode.LIVE_003", "    if False:\n        raise LiveFailed(ErrorCode.LIVE_003")],
     "live_proof_allow_list_not_compared": [(LCO, "    if {(p.address, p.port) for p in proof.allowed} != {(p.address, p.port) for p in sent}:", "    if False:")],
     "live_failed_proof_does_not_stop_the_container": [(LCO, "            except BaseException:\n                container.abort()\n                raise", "            except BaseException:\n                raise")],

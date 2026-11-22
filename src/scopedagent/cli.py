@@ -32,7 +32,7 @@ from scopedagent.domain.findings import FindingDetails, ReviewDecision
 from scopedagent.domain.models import Engagement, FindingDraft, FindingWording, Run
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import AiError, ErrorCode, PolicyError, ScopedAgentError
-from scopedagent.live.controller import LiveRequest, run_live
+from scopedagent.live.controller import LiveRequest, run_live, work_directory
 from scopedagent.live.runtime import DockerRuntime, Runtime, Session
 from scopedagent.logs import safe_text
 from scopedagent.output.report import (
@@ -1025,7 +1025,12 @@ def live_run(
         database = open_database(directory)
         try:
             result = run_live(
-                database, ArtifactStore(directory), request, runtime=_LazyRuntime(image), environ=os.environ
+                database,
+                ArtifactStore(directory),
+                request,
+                runtime=_LazyRuntime(image),
+                environ=os.environ,
+                work_root=work_directory(directory.root),
             )
         finally:
             database.close()
