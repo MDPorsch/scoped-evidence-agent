@@ -28,6 +28,7 @@ from scopedagent.adapters.parse import (
     api_markers,
     api_spec_summary,
     chat_completion,
+    cookie_flags,
     json_shape,
     models_summary,
     openapi_summary,
@@ -214,6 +215,7 @@ class _Exchange:
     redacted_text: str | None
     redactions: int
     source: bytes
+    cookies: tuple[dict[str, Any], ...] = ()  # the flags of each Set-Cookie, read before the values were redacted
 
 
 def _text_of(kept: bytes, truncated: bool) -> str | None:
@@ -259,6 +261,7 @@ def _exchange(entry: dict[str, Any], *, max_bytes: int, own_host: str) -> _Excha
         incoming.setdefault(name.lower(), []).extend(values)
     if len(incoming) > 64 or any(len(v) > 64 or any(len(x) > 4096 for x in v) for v in incoming.values()):
         raise _Failure(ErrorStatus.SIZE_LIMIT)
+    cookies = tuple(cookie_flags([safe_text(x, 4096) for x in incoming.get("set-cookie", [])]))
     headers, redactions = redact_headers_counted(
         {k: [safe_text(x, 4096) for x in v] for k, v in incoming.items()}, own_host=own_host
     )
@@ -304,6 +307,7 @@ def _exchange(entry: dict[str, Any], *, max_bytes: int, own_host: str) -> _Excha
         redacted_text,
         redactions,
         _canon(stored),
+        cookies,
     )
 
 
@@ -443,6 +447,7 @@ class OfflineHttp:
             "headers": ex.headers,
             "redirect_location": ex.location,
             "body": _body_summary(ex, parsed),
+            "cookies": list(ex.cookies),
         }
         try:
             envelope = _envelope(operation, outcome, payload)

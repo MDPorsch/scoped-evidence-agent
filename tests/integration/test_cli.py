@@ -71,6 +71,16 @@ def test_validate_prints_the_engagement_hash_plan_and_the_authorization_notice()
     assert "not proof of authorization" in result.output
 
 
+def test_validate_names_the_checks_a_scope_switches_on_and_says_nothing_when_there_are_none() -> None:
+    assert "checks switched on" not in invoke("scope", "validate", str(SCOPE_FILES["healthy"])).output
+    result = invoke("scope", "validate", str(SCOPE_FILES["passive"]))
+    assert result.exit_code == 0, result.output
+    assert (
+        "checks switched on: passive cookie_flags, header_quality (they read what is collected and send nothing new)"
+        in result.output
+    )
+
+
 def test_validate_warns_when_the_plan_exceeds_the_budget_but_still_succeeds(tmp_path: Path) -> None:
     data = scope_dict()
     data["max_requests"] = 3

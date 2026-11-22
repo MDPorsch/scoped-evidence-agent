@@ -1,6 +1,6 @@
 # Stage 2 design: safe web and API checks (for the owner to read BEFORE any code is written)
 
-**Status: approved by the owner on 2026-11-22 (D-E89 to D-E94, as written), not yet built.** Nothing in this document changes the tool by
+**Status: approved by the owner on 2026-11-22 (D-E89 to D-E94, as written). Piece 2a (group A) is built (`docs/milestones/M7-2a.md`); the rest is not.** Nothing in this document changes the tool by
 itself. It describes what Stage 2 adds, what each check sends to a target and what it records. It is built in the pieces named in section 8,
 each its own pull request that the owner reviews and merges.
 

@@ -180,6 +180,8 @@ def ai_flags(text: str) -> dict[str, bool]:
 # --------------------------------------------------------------------------------------------- API evidence ----
 _OPERATION_VERBS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
 MAX_OPERATIONS = 10_000
+MAX_LISTED_OPERATIONS = 200
+_SPEC_PATH = re.compile(r"/[A-Za-z0-9_./{}~:-]{0,150}")  # a documented path that is not this plain is not listed
 
 
 def api_spec_summary(text: str) -> dict[str, Any]:
@@ -190,7 +192,8 @@ def api_spec_summary(text: str) -> dict[str, Any]:
     paths = doc.get("paths") if isinstance(doc.get("paths"), dict) else {}
     top = doc.get("security")
     operations = unsecured = 0
-    for item in list(paths.values())[:MAX_OPERATIONS]:
+    listed: list[str] = []
+    for path, item in list(paths.items())[:MAX_OPERATIONS]:
         if not isinstance(item, dict):
             continue
         for verb in _OPERATION_VERBS:
@@ -198,9 +201,13 @@ def api_spec_summary(text: str) -> dict[str, Any]:
             if not isinstance(operation, dict) or operations >= MAX_OPERATIONS:
                 continue
             operations += 1
+            if isinstance(path, str) and _SPEC_PATH.fullmatch(path) and len(listed) < MAX_LISTED_OPERATIONS:
+                listed.append(f"{verb.upper()} {path}")
             effective = operation.get("security", top)
             unsecured += 1 if effective is None or effective == [] else 0
-    return _bound({**summary, "operation_count": operations, "operations_without_security": unsecured})
+    return _bound(
+        {**summary, "operation_count": operations, "operations_without_security": unsecured, "operations": listed}
+    )
 
 
 MAX_SHAPE_ENTRIES = 200
@@ -315,3 +322,45 @@ def allow_methods(values: list[str]) -> list[str]:
             if _ALLOW_TOKEN.fullmatch(token) and token not in seen and len(seen) < 12:
                 seen.append(token)
     return seen
+
+
+# ------------------------------------------------------------------------------------------------- cookies ----
+MAX_COOKIES = 16
+_COOKIE_NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def cookie_flags(values: list[str]) -> list[dict[str, Any]]:
+    """What each `Set-Cookie` header says about its cookie: the name and the Secure, HttpOnly and SameSite flags.
+
+    The value is never kept: it is dropped here, before anything is stored. A name that is not short and plain is `?`.
+    A header that is not `name=value; ...` is not a cookie and is skipped.
+    """
+    cookies: list[dict[str, Any]] = []
+    for raw in values:
+        parts = raw.split(";")
+        name, equals, _value = parts[0].partition("=")
+        if not equals:
+            continue
+        secure = http_only = False
+        same_site = "missing"
+        for attribute in parts[1:]:
+            key, _, setting = attribute.partition("=")
+            key, setting = key.strip().lower(), setting.strip().lower()
+            if key == "secure":
+                secure = True
+            elif key == "httponly":
+                http_only = True
+            elif key == "samesite":
+                same_site = setting if setting in ("strict", "lax", "none") else "other"
+        name = name.strip()
+        cookies.append(
+            {
+                "name": name if _COOKIE_NAME.fullmatch(name) else "?",
+                "secure": secure,
+                "http_only": http_only,
+                "same_site": same_site,
+            }
+        )
+        if len(cookies) == MAX_COOKIES:
+            break
+    return cookies

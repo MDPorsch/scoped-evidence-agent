@@ -45,6 +45,9 @@ MAPPING = {
     "R-API-01": [("owasp-api-top10", "API9"), ("owasp-top10", "A02")],
     "R-CORS-01": [("owasp-top10", "A02"), ("owasp-api-top10", "API8")],
     "R-DNS-01": [("owasp-top10", "A02")],
+    "R-COOKIE-01": [("owasp-top10", "A02"), ("owasp-top10", "A07")],
+    "R-HDR-02": [("owasp-top10", "A02")],
+    "R-API-02": [("owasp-api-top10", "API9")],
     "R-AI-01": [("owasp-llm-top10", "LLM01")],
     "R-AI-02": [("owasp-llm-top10", "LLM08")],
     "R-AI-03": [("owasp-llm-top10", "LLM02")],
@@ -124,10 +127,11 @@ def test_coverage_lists_each_category_with_the_rules_that_answer_it_and_the_gaps
     rows = coverage()
     covered = {key: {c.id: rules for c, rules in table if rules} for key, table in rows.items()}
     assert covered["owasp-top10"] == {
-        "A02": ("R-HDR-01", "R-INFO-01", "R-INFO-02", "R-API-01", "R-CORS-01", "R-DNS-01"),
+        "A02": ("R-HDR-01", "R-INFO-01", "R-INFO-02", "R-API-01", "R-CORS-01", "R-DNS-01", "R-COOKIE-01", "R-HDR-02"),
         "A04": ("R-TLS-01", "R-REDIR-01"),
+        "A07": ("R-COOKIE-01",),
     }
-    assert covered["owasp-api-top10"] == {"API8": ("R-CORS-01",), "API9": ("R-API-01",)}
+    assert covered["owasp-api-top10"] == {"API8": ("R-CORS-01",), "API9": ("R-API-01", "R-API-02")}
     assert covered["owasp-llm-top10"] == {
         "LLM01": ("R-AI-01",),
         "LLM02": ("R-AI-03",),

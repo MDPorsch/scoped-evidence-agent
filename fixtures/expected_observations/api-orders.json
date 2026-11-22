@@ -37,7 +37,14 @@
             "bearerAuth"
           ],
           "operation_count": 5,
-          "operations_without_security": 2
+          "operations_without_security": 2,
+          "operations": [
+            "GET /projects",
+            "GET /projects/{project_id}",
+            "DELETE /projects/{project_id}",
+            "GET /health",
+            "GET /internal/debug"
+          ]
         }
       }
     }

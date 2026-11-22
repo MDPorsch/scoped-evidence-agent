@@ -19,7 +19,7 @@ and kept up to date. That changes what the tool sends, so it is built **in stage
 
 1. **Host cap and OWASP catalogue (built).** `benchmarks status` and `benchmarks rules`, the OWASP category beside every rule in
    `findings show` and in reports, and 20 live hosts. No new request is sent.
-2. **Safe web and API checks (next, needs your review of its design first).** Checks that need no change of state: cookie flags, error
+2. **Safe web and API checks (design approved; piece 2a, the passive checks, is built).** Checks that need no change of state: cookie flags, error
    verbosity, default and exposed files from a fixed list, access control on the API endpoints you list by comparing two test users (the
    OWASP API list's top categories), and the marker probes of D-E83. A scope must **opt in** to anything beyond collection, and every check
    will name its OWASP category and its limits.

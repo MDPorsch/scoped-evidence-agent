@@ -85,7 +85,15 @@
         ]
       },
       "redirect_location": "http://localhost:8080/admin",
-      "body": null
+      "body": null,
+      "cookies": [
+        {
+          "name": "session",
+          "secure": false,
+          "http_only": false,
+          "same_site": "missing"
+        }
+      ]
     }
   },
   {
@@ -128,7 +136,8 @@
           ],
           "expires": "2025-01-01T00:00:00Z"
         }
-      }
+      },
+      "cookies": []
     }
   },
   {
@@ -181,7 +190,8 @@
             "apiKeyAuth"
           ]
         }
-      }
+      },
+      "cookies": []
     }
   },
   {
@@ -227,7 +237,8 @@
             "/backup"
           ]
         }
-      }
+      },
+      "cookies": []
     }
   }
 ]

@@ -100,7 +100,15 @@
           ],
           "expires": "2027-06-01T00:00:00Z"
         }
-      }
+      },
+      "cookies": [
+        {
+          "name": "session",
+          "secure": false,
+          "http_only": false,
+          "same_site": "missing"
+        }
+      ]
     }
   },
   {
@@ -145,7 +153,8 @@
           ],
           "security_schemes": []
         }
-      }
+      },
+      "cookies": []
     }
   },
   {
@@ -187,7 +196,8 @@
             "/admin"
           ]
         }
-      }
+      },
+      "cookies": []
     }
   }
 ]

@@ -151,6 +151,11 @@ app.add_typer(live_app, name="live")
 app.add_typer(benchmarks_app, name="benchmarks")
 
 
+def _checks_line(passive: Sequence[str]) -> str:
+    """What the scope switches on beyond collection (docs/stage2-design.md): shown at validation and before approval."""
+    return f"checks switched on: passive {', '.join(passive)} (they read what is collected and send nothing new)"
+
+
 def _data_dir(chosen: Path | None) -> DataDir:
     """Resolved when the command runs, so a changed XDG_DATA_HOME is honoured."""
     return DataDir(chosen if chosen is not None else default_data_dir())
@@ -205,6 +210,8 @@ def scope_validate(ctx: typer.Context, file: Annotated[Path, typer.Argument(help
         f"targets: {len(config.allowed_targets)}   planned operations: {len(loaded.planned)} ({breakdown})"
         f"   max_requests: {config.max_requests}"
     )
+    if config.checks is not None:
+        typer.echo(_checks_line(config.checks.passive))
     if config.ai_targets:
         tokens = sum(ai.worst_case_tokens for ai in config.ai_targets)
         typer.echo(
@@ -917,6 +924,8 @@ def approvals_grant(
         database = open_database(_data_dir(data_dir))
         try:
             typer.echo(f"scope {loaded.config.engagement_id}   sha256 {loaded.sha256}")
+            if loaded.config.checks is not None:
+                typer.echo(_checks_line(loaded.config.checks.passive))
             typer.echo(attestation(loaded))
             typed = typer.prompt(
                 f"Type the first {MIN_REF} characters of the scope hash ({loaded.sha256[:MIN_REF]}) to approve",

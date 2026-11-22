@@ -106,7 +106,9 @@ a rule evaluated later against the run's clock, so a stored observation never go
 
 **`http_metadata`**: `host`, `port`, `scheme`, `path`, `method` (`GET` or `HEAD`), `http_status` or null,
 `headers` (lower-case names, at most 64, values redacted by name and shape), `redirect_location` (recorded, never
-followed), `body` or null (`size_bytes`, `truncated`, `content_type`, `artifact_sha256`, `parsed`).
+followed), `cookies` (at most 16: for each `Set-Cookie` header its name and the `secure`, `http_only` and `same_site`
+(`strict`, `lax`, `none`, `missing`, `other`) flags, **never the value**; a name that is not short and plain is `?`; absent in an
+observation stored before Stage 2a), `body` or null (`size_bytes`, `truncated`, `content_type`, `artifact_sha256`, `parsed`).
 `parsed` is a small bounded document extracted from known paths (security.txt fields, an OpenAPI summary, robots
 directives); it is never executed or fetched from. Nothing free-form is copied: an OpenAPI title or description is never read, and
 every list is capped (and shortened, last entries first, until the facts fit the schema's 8 KiB limit) so a large but valid file is

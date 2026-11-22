@@ -1,0 +1,20 @@
+engagement_id: lab-passive-001
+owner_approval_ref: local-lab-consent
+expires_at: '2026-12-31T23:59:00Z'
+mode: offline
+allowed_targets:
+  - host: weak.example.invalid
+    schemes: [https]
+    ports: [443]
+    allowed_paths:
+      - '/'
+      - '/app'
+      - '/plain'
+allowed_operations: [http_metadata]
+max_requests: 6
+max_parallelism: 2
+per_request_timeout_seconds: 5
+max_response_bytes: 100000
+follow_redirects: false
+checks:
+  passive: [cookie_flags, header_quality]

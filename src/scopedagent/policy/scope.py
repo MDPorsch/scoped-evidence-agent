@@ -55,6 +55,7 @@ OperationKind = Literal[
 AiOperation = Literal["ai_metadata", "ai_probe"]
 ApiOperation = Literal["api_spec", "api_read", "api_options"]
 AiCategory = Literal["prompt_injection", "system_prompt_leakage", "sensitive_information_disclosure", "output_handling"]
+PassiveCheck = Literal["cookie_flags", "header_quality", "spec_drift"]
 RULES_NOT_AVAILABLE = "not available in this version: only forbidden is accepted"
 
 
@@ -696,6 +697,22 @@ class Egress(_Model):
             raise ScopeValueError(ErrorCode.SCOPE_006, str(exc)) from None
 
 
+class ChecksConfig(_Model):
+    """The optional checks a scope switches on (docs/stage2-design.md). Absent means collection only, exactly as before.
+
+    `passive` checks read what the run already collected: they send nothing new.
+    """
+
+    passive: Annotated[list[PassiveCheck], Field(min_length=1, max_length=3)]
+
+    @field_validator("passive")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ScopeValueError(ErrorCode.SCOPE_003, "checks.passive must not repeat a check")
+        return value
+
+
 class ScopeConfig(_Model):
     engagement_id: str
     owner_approval_ref: str
@@ -706,6 +723,7 @@ class ScopeConfig(_Model):
     api_targets: Annotated[list[ApiTarget], Field(max_length=10)] = []
     authorization: Authorization | None = None
     egress: Egress | None = None
+    checks: ChecksConfig | None = None
     allowed_operations: Annotated[list[OperationKind], Field(min_length=1)]
     max_requests: Annotated[int, Field(ge=1, le=500)]
     max_parallelism: Annotated[int, Field(ge=1, le=4)] = 2
@@ -760,8 +778,22 @@ class ScopeConfig(_Model):
         self._check_web_targets()
         self._check_ai_targets()
         self._check_api_targets()
+        self._check_checks()
         self._check_live()
         return self
+
+    def _check_checks(self) -> None:
+        """A check that has nothing to read is refused, as an allowed operation no target can use is."""
+        if self.checks is None:
+            return
+        allowed = set(self.allowed_operations)
+        for name in self.checks.passive:
+            if name in ("cookie_flags", "header_quality") and "http_metadata" not in allowed:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_009, f"{name} reads HTTP answers but http_metadata is not allowed"
+                )
+            if name == "spec_drift" and not any("api_spec" in api.operations for api in self.api_targets):
+                raise ScopeValueError(ErrorCode.SCOPE_009, "spec_drift needs an API target that allows api_spec")
 
     def _check_web_targets(self) -> None:
         seen: set[tuple[str, str, int]] = set()
@@ -1027,6 +1059,8 @@ def normalised(config: ScopeConfig) -> dict[str, Any]:
         result["ai_targets"] = [_normalised_ai(ai) for ai in config.ai_targets]
     if config.api_targets:
         result["api_targets"] = [_normalised_api(api) for api in config.api_targets]
+    if config.checks is not None:
+        result["checks"] = {"passive": list(config.checks.passive)}
     if config.authorization is not None:
         auth = config.authorization
         result["authorization"] = {

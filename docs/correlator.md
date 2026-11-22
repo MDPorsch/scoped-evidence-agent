@@ -25,7 +25,8 @@ findings list|show ──► a person reads ──► findings review (typed con
 
 `tls_misconfiguration`, `missing_security_header`, `information_disclosure`, `insecure_redirect`, `exposed_api_documentation`,
 `permissive_cors`, `dns_external_reference`, `ai_prompt_injection_susceptibility`, `ai_system_prompt_leakage`,
-`ai_sensitive_information_disclosure`, `ai_output_handling`. A class not on this list cannot be stored (schema and database).
+`ai_sensitive_information_disclosure`, `ai_output_handling`, and, from Stage 2a, `insecure_cookie`, `weak_header_policy` and
+`api_inventory_drift`. A class not on this list cannot be stored (schema and database).
 
 ## The rule catalogue (version 1)
 
@@ -47,6 +48,9 @@ value that came from the target; it is shown only after it matches a strict shap
 | R-AI-02 | `ai_system_prompt_leakage` | `ai_probe`, category `system_prompt_leakage`, one per target | `canary_present` is true | CWE-200 | `conditional` | `medium` | 0.60 |
 | R-AI-03 | `ai_sensitive_information_disclosure` | `ai_probe`, category `sensitive_information_disclosure`, one per target | `canary_present` is true | CWE-200 | `conditional` | `medium` | 0.60 |
 | R-AI-04 | `ai_output_handling` | `ai_probe`, category `output_handling`, one per target | any of `contains_html`, `contains_markdown_link`, `contains_code_block`, `contains_url` is true | CWE-116 | `conditional` | `low` | 0.70 |
+| R-COOKIE-01 | `insecure_cookie` | `http_metadata` cookie flags (never a value) | a cookie lacks `Secure` (on an https response), `HttpOnly`, or a stated `SameSite`; **only when the scope's `checks.passive` lists `cookie_flags`** | CWE-614, CWE-1004, CWE-1275 | `conditional` | `low` | 0.50 |
+| R-HDR-02 | `weak_header_policy` | `http_metadata` of an https target, status 200 to 399 | a Content-Security-Policy whose script source allows `'unsafe-eval'`, `'unsafe-inline'` (with no nonce, hash or `'strict-dynamic'`) or `*`; an HSTS `max-age` under 180 days (or none); a `Referrer-Policy` of `unsafe-url`; **only when `checks.passive` lists `header_quality`** | CWE-693 | `conditional` | `low` | 0.60 |
+| R-API-02 | `api_inventory_drift` | `api_spec` (the documented operations) against the API target's endpoints | a documented GET or HEAD operation the scope does not list, or (when the list of operations is complete) a listed endpoint the description lacks; paths compared with `{name}` placeholders as `{}`, with and without the base path; **only when `checks.passive` lists `spec_drift`** | none | `not_assessed` | `info` | 0.50 |
 
 "One draft per target" cites **every** observation that fired, so duplicates are grouped, not repeated. A rule never says an
 absence is proof: R-HDR-01 lists, as unknowns, the paths that were not collected. The assessment `likely_if_conditions_hold` is in

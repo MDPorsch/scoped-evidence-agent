@@ -298,3 +298,40 @@ def test_a_token_that_is_not_a_method_shaped_word_is_dropped() -> None:
 def test_at_most_twelve_methods_are_kept() -> None:
     names = [f"M{chr(65 + i)}{chr(65 + i)}" for i in range(20)]
     assert allow_methods([", ".join(names)]) == names[:12]
+
+
+# ------------------------------------------------------------------------- the documented operations (Stage 2a) ----
+def test_the_documented_operations_are_listed_in_document_order_as_method_and_path() -> None:
+    summary = api_spec_summary(json.dumps(SPEC))
+    assert summary["operations"] == [
+        "GET /a", "POST /a", "GET /b", "DELETE /b", "PUT /c", "PATCH /c", "HEAD /c", "OPTIONS /c", "TRACE /c",
+    ]  # fmt: skip
+    assert len(summary["operations"]) == summary["operation_count"]  # a complete list
+
+
+def test_a_path_that_is_not_plain_is_counted_but_not_listed() -> None:
+    doc = {
+        "openapi": "3.0.0",
+        "paths": {"/ok/{id}": {"get": {}}, "/<x>": {"get": {}}, "no-slash": {"get": {}}, "/a b": {"get": {}}},
+    }
+    summary = api_spec_summary(json.dumps(doc))
+    assert summary["operations"] == ["GET /ok/{id}"] and summary["operation_count"] == 4
+
+
+def test_a_path_of_a_hundred_and_fifty_one_characters_is_not_listed() -> None:
+    edge = "/" + "a" * 150
+    doc = {"openapi": "3.0.0", "paths": {edge: {"get": {}}, edge + "a": {"get": {}}}}
+    assert api_spec_summary(json.dumps(doc))["operations"] == [f"GET {edge}"]
+
+
+def test_at_most_two_hundred_operations_are_listed_while_all_are_counted() -> None:
+    doc = {"openapi": "3.0.0", "paths": {f"/p{i}": {"get": {}} for i in range(300)}}
+    summary = api_spec_summary(json.dumps(doc))
+    assert summary["operation_count"] == 300 and len(summary["operations"]) == 200
+    assert (
+        summary["operations"][0] == "GET /p0" and summary["operations"][-1] == "GET /p199"
+    )  # the first ones, in order
+
+
+def test_a_spec_with_no_operations_lists_none() -> None:
+    assert api_spec_summary(json.dumps({"openapi": "3.0.0", "paths": {}}))["operations"] == []
