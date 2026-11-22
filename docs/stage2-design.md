@@ -1,8 +1,8 @@
 # Stage 2 design: safe web and API checks (for the owner to read BEFORE any code is written)
 
-**Status: a proposal, not built.** Nothing in this document changes the tool. It describes what Stage 2 would add, what each check sends to a
-target, what it records, and which parts need your decision. When you have read it and answered the questions at the end, I build it, in the
-pieces named below, each its own pull request.
+**Status: approved by the owner on 2026-11-22 (D-E89 to D-E94, as written), not yet built.** Nothing in this document changes the tool by
+itself. It describes what Stage 2 adds, what each check sends to a target and what it records. It is built in the pieces named in section 8,
+each its own pull request that the owner reviews and merges.
 
 ## 1. What Stage 2 adds, in one paragraph
 
@@ -149,15 +149,15 @@ Reflection is not a vulnerability, and an absent reflection is not proof of safe
 changes it). Group D finds only the problems your declared ownership and roles can express. False positives and negatives are certain, which
 is why every result is a draft with steps a person runs by hand. The tool will still not "cover the OWASP Top 10".
 
-## 10. Decisions I need from you (all proposed, none approved)
+## 10. Decisions (all approved by the owner, 2026-11-22: "agree with all")
 
-| ID | Decision | Recommended |
+| ID | Decision | Status |
 |---|---|---|
-| D-E89 | The four groups of checks and what each sends, as tables 3A to 3D | yes |
-| D-E90 | A `checks` block that is off by default, joins the scope hash, is printed at approval, plus `--ack-active-probes` for group C | yes |
-| D-E91 | The fixed lists: the three marker values and the eight exposed-file paths, exactly as in section 5 | yes, **read the three markers and eight paths yourself** |
-| D-E92 | Group D needs you to declare, in the scope, which test user owns which object and which role each user has | yes |
-| D-E93 | The circuit breaker thresholds (3 server errors or 429s, or 2 timeouts, in a row) | yes |
-| D-E94 | The build order 2a, 2d, 2b, 2c | yes, or tell me another order |
+| D-E89 | The four groups of checks and what each sends, as tables 3A to 3D | approved |
+| D-E90 | A `checks` block that is off by default, joins the scope hash, is printed at approval, plus `--ack-active-probes` for group C | approved |
+| D-E91 | The fixed lists: the three marker values and the eight exposed-file paths, exactly as in section 5 | approved |
+| D-E92 | Group D needs you to declare, in the scope, which test user owns which object and which role each user has | approved |
+| D-E93 | The circuit breaker thresholds (3 server errors or 429s, or 2 timeouts, in a row) | approved |
+| D-E94 | The build order 2a, 2d, 2b, 2c | approved |
 
-If you would rather skip a group (for example never send markers), say so and I drop it from the plan.
+The owner approved all six, including the three marker values and the eight paths exactly as listed, and the build order. A group can still be dropped later by saying so.
