@@ -28,6 +28,16 @@ from scopedagent.ai.prompt import PROMPT_VERSION
 from scopedagent.ai.protocol import ModelUnavailable, RewordItem, RewordRequest
 from scopedagent.ai.reword import reword_run
 from scopedagent.ai.validation import validate_item
+from scopedagent.benchmarks.catalogue import (
+    CatalogueError,
+    age_days,
+    catalogue,
+    coverage,
+    is_stale,
+    references_for,
+    unknown_rules,
+    unmapped,
+)
 from scopedagent.domain.findings import FindingDetails, ReviewDecision
 from scopedagent.domain.models import Engagement, FindingDraft, FindingWording, Run
 from scopedagent.domain.state_machine import Actor, ActorType
@@ -43,6 +53,7 @@ from scopedagent.output.report import (
     write_report,
 )
 from scopedagent.pipeline.orchestrator import execute_run
+from scopedagent.pipeline.rules import RULES
 from scopedagent.policy.authorization import AUTHORIZATION_NOTICE, attestation
 from scopedagent.policy.scope import load_scope, parse_scope
 from scopedagent.storage.approvals import grant_approval, list_approvals, revoke_approval
@@ -107,6 +118,9 @@ live_app = typer.Typer(
 ai_app = typer.Typer(
     no_args_is_help=True, help="The optional model that may reword a draft's sentences (off by default)."
 )
+benchmarks_app = typer.Typer(
+    no_args_is_help=True, help="The OWASP benchmarks the checks are mapped to, and how current that mapping is."
+)
 
 
 def _version_callback(value: bool) -> None:
@@ -134,6 +148,7 @@ app.add_typer(report_app, name="report")
 app.add_typer(ai_app, name="ai")
 app.add_typer(approvals_app, name="approvals")
 app.add_typer(live_app, name="live")
+app.add_typer(benchmarks_app, name="benchmarks")
 
 
 def _data_dir(chosen: Path | None) -> DataDir:
@@ -473,6 +488,9 @@ def findings_list(
 def _show_details(details: FindingDetails) -> None:
     echo = typer.echo
     echo(f"rule: {details.rule_id} (version {details.rule_version})")
+    references = references_for(details.rule_id)
+    if references:
+        echo("benchmarks (closest categories, not a verdict): " + "; ".join(r.label for r in references))
     echo("cwe: " + (", ".join(details.cwe_candidates) or "none") + " (suggestions to verify)")
     echo(f"severity: unknown (suggested: {details.suggested_severity.value.value})")
     echo(f"  severity basis: {details.suggested_severity.basis}")
@@ -1054,3 +1072,64 @@ class _LazyRuntime:
 
     def start(self, *, credential_envs: list[str], out_dir: Path) -> Session:
         return _runtime(self._image).start(credential_envs=credential_envs, out_dir=out_dir)
+
+
+# ------------------------------------------------------------------------------------------------ benchmarks ----
+def _check_catalogue_matches_rules() -> None:
+    ids = [rule.id for rule in RULES]
+    problems = [f"rule {i} has no benchmark mapping" for i in unmapped(ids)]
+    problems += [f"the catalogue maps {i}, which is not a rule" for i in unknown_rules(ids)]
+    if problems:
+        raise PolicyError(ErrorCode.POLICY_003, "; ".join(problems))
+
+
+@benchmarks_app.command("status")
+def benchmarks_status(ctx: typer.Context) -> None:
+    """Each benchmark edition, when it was last checked against its source, and which of its categories have a rule.
+
+    "Has a rule" means at least one rule maps to the category. It is not a claim that the category is well
+    tested: the rest are gaps.
+    """
+    today = _context(ctx).clock().date()
+    try:
+        _check_catalogue_matches_rules()
+        cat = catalogue()
+        rows = coverage(cat)
+    except (CatalogueError, PolicyError) as exc:
+        typer.echo(f"error {exc}", err=True)
+        raise typer.Exit(1) from None
+    stale = 0
+    for benchmark in cat.benchmarks:
+        age = max(age_days(benchmark, today), 0)  # a clock set before the check date is not a negative age
+        typer.echo(f"{benchmark.title} {benchmark.edition}   checked {benchmark.checked_on} ({age} days ago)")
+        typer.echo(f"  source: {benchmark.source}")
+        covered = 0
+        for category, rules in rows[benchmark.key]:
+            covered += bool(rules)
+            typer.echo(f"  {category.id:<6} {category.name:<46} {', '.join(rules) if rules else 'no rule yet'}")
+        typer.echo(f"  {covered} of {len(rows[benchmark.key])} categories have a rule")
+        if is_stale(benchmark, today):
+            stale += 1
+            typer.echo(
+                f"  note: not checked against its source for {age} days: look for a newer edition (docs/benchmarks.md)"
+            )
+    typer.echo(
+        "note: a mapping is the closest category, never a verdict; a category with a rule is not thereby well tested."
+    )
+    if stale:
+        typer.echo(f"note: {stale} benchmark(s) may be out of date.")
+
+
+@benchmarks_app.command("rules")
+def benchmarks_rules() -> None:
+    """For each rule, the benchmark categories it is mapped to and why."""
+    try:
+        _check_catalogue_matches_rules()
+    except PolicyError as exc:
+        typer.echo(f"error {exc}", err=True)
+        raise typer.Exit(1) from None
+    for rule in RULES:
+        typer.echo(f"{rule.id}  ({rule.vulnerability_class.value})")
+        for reference in references_for(rule.id):
+            typer.echo(f"  {reference.label}")
+            typer.echo(f"    {reference.note}")

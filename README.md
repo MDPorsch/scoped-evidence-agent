@@ -35,7 +35,9 @@ and never decides on its own that something is a vulnerability.
    redirects, exposed API descriptions, permissive CORS, external DNS aliases and four AI-system cases) turn observations into **drafts**.
    A draft names the flaw class, the evidence behind it, the conditions under which it matters, an exploitability *assessment* (never a
    confirmation) and **read-only steps a person can run to check it**. Only a human reviewer can validate a draft.
-6. **It reports its coverage honestly.** A timeout, a DNS failure or a refused operation is an error, never "clean": an incomplete
+6. **It names the OWASP category beside each rule** (Top 10 2025, API Security Top 10 2023, LLM Top 10 2026), as the closest match and never a
+   verdict, and `benchmarks status` shows which categories have **no** rule yet and how recently the lists were checked (`docs/benchmarks.md`).
+7. **It reports its coverage honestly.** A timeout, a DNS failure or a refused operation is an error, never "clean": an incomplete
    collection never exits `0`.
 
 ## A run, for real
@@ -159,6 +161,8 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
   Colima, and one `live run` end to end against the author's own site (DNS, TLS and three GETs), whose proof passed.
 * **Not proved:** a second host, a login, an API or AI target, IPv6, other container runtimes (Docker Desktop, Podman, rootless). Nothing here
   proves anyone authorized anything: the scope file is a restriction, not proof of authorization, and the tool says so in every output.
+* **Where it is going:** active vulnerability checks, API testing and live AI probes are planned in stages, each reviewed before it is
+  merged (`docs/active-testing-roadmap.md`). Until a stage is merged the tool sends only read-only requests.
 * **What it will not do:** write or run an exploit, a payload or an attack chain; discover hosts or walk ranges; follow what a target tells it
   to do; decide that something is a vulnerability. No draft is not proof that nothing is wrong: twelve rules cover only some flaws (`LIMITATIONS.md`).
 
@@ -177,6 +181,8 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
 | `docs/data-flow.md` | what is stored, redacted, retained and sent |
 | `docs/cli.md` | the commands and the exit codes |
 | `docs/correlator.md` | the twelve rules and how a draft is made |
+| `docs/benchmarks.md` | the OWASP editions the rules are mapped to, and how that is kept current |
+| `docs/active-testing-roadmap.md` | the plan to add active checks, API testing and live AI probes, and the decisions behind it |
 | `docs/api-targets.md`, `docs/ai-targets.md` | the API and AI-system scopes |
 | `docs/ai-adapter.md` | the optional model: what it may do, what it is sent, how its answer is checked |
 | `docs/remote-live-design.md` | live collection: the controls, the container and what is not yet proved |

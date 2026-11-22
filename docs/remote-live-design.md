@@ -176,7 +176,7 @@ produce it does not exist.
 | L9 | An AI probe has a side effect | no tool invocation, fixed library probes, per-target limits (`ai-targets.md`) |
 | L10 | Load or cost on the client | 4.6 rate, budget and token limits |
 | L11 | Run outside the engagement, or by accident from CI | 4.2 window, `--ack`, approval record |
-| L12 | The tool becomes a scanner | 4.1: no discovery, at most 10 listed hosts, nothing learned from a target is ever contacted |
+| L12 | The tool becomes a scanner | 4.1: no discovery, at most 20 listed hosts, nothing learned from a target is ever contacted |
 
 ## 6. What this does not guarantee
 
@@ -214,7 +214,7 @@ container), before anything is called safe.
 | D-E42 | Credentials only for AI targets, from the environment, bearer or one named header, leak-guarded | yes |
 | D-E43 | `ai_probe` is the only non-GET live operation: one POST of a library probe, limits from the scope | yes |
 | D-E44 | Hostile data is parsed only inside the sandbox; the controller accepts schema-valid output only | yes |
-| D-E45 | Rate default 2/s, cap 10/s, at most 10 hosts in live mode | yes; tell me your clients' usual limits |
+| D-E45 | Rate default 2/s, cap 10/s, at most 10 hosts in live mode (**raised to 20 hosts by D-E86, 2026-11-22**) | yes; tell me your clients' usual limits |
 | D-E46 | Not called safe until the isolation has been exercised on a real container and a lab target; the report states the proof | yes |
 | D-E47 | Built last (M5), after offline M2 to M4, as a separate reviewed change | yes |
 
@@ -230,7 +230,7 @@ container), before anything is called safe.
 | Piece | Where | What it does |
 |---|---|---|
 | Address policy | `live/addresses.py` | The `boundarycheck` rules: public by default, private only if the scope lists the range, a few ranges never; every address of a host must pass |
-| Scope blocks | `policy/scope.py` | `authorization` (engagement, window) and `egress` (ranges, rate) in a `mode: live` scope; at most 10 hosts; they join the hash |
+| Scope blocks | `policy/scope.py` | `authorization` (engagement, window) and `egress` (ranges, rate) in a `mode: live` scope; at most 20 hosts; they join the hash |
 | Approvals | `storage/approvals.py`, migration `0005` | `approvals grant\|list\|revoke`: bound to one scope hash, an expiry, append-only, typed confirmation |
 | Controller | `live/controller.py` | gates, one resolution per host, the proof gate, validation of the sandbox output, then the **same run pipeline** as an offline run |
 | Container | `live/runtime.py`, `live/isolation.py`, `docker/collector/Dockerfile` | the whole posture in one command; firewall, self-test, privilege drop, proof, then the job |
@@ -246,7 +246,7 @@ A run whose proof fails never exists.
 
 ### Decisions made in the build (approved; the stop for review is D-E47)
 
-Status (2026-11-22): **D-E74 to D-E81 are approved by the owner (2026-11-21); D-E82 is new and pending.** That approves the decisions, not use: live mode still stops at D-E47 (not merged, and not to be used on a host you do not own, until one `live run` against a lab you own has worked end to end).
+Status (2026-11-22): **D-E74 to D-E81 are approved by the owner (2026-11-21); D-E82 was approved on 2026-11-22.** That approves the decisions, not use: live mode still stops at D-E47 (not merged, and not to be used on a host you do not own, until one `live run` against a lab you own has worked end to end).
 
 | ID | Decision |
 |---|---|
@@ -258,4 +258,4 @@ Status (2026-11-22): **D-E74 to D-E81 are approved by the owner (2026-11-21); D-
 | D-E79 | **Certificates are parsed with `cryptography`, installed in the container image only** (the `live` extra); the controller and the offline tool do not need it. *Approved by the owner, 2026-11-21.* |
 | D-E80 | **Not called safe.** The container isolation has been run for real in CI (a GitHub-hosted Ubuntu runner) and on the owner's Mac (Colima), and one `live run` has gone end to end against the owner's own site (`breachrr.com`, 3 GETs, DNS and TLS), with the proof passing. No other runtime or host was tried, nothing with a login, an API or an AI endpoint was targeted, and a clean first run proves nothing about the next one. The report of a live run states the proof it got. *Approved by the owner, 2026-11-21.* |
 | D-E81 | **A locally built image is pinned by its ID.** The first real CI build showed that the documented form `name@sha256:<image id>` makes Docker try to *pull* `name` from a registry: a repository digest exists only after a push. `--image` therefore also accepts the bare `sha256:<64 hex>` ID of an image built here, which is a hash of the image's content and so as fixed as a digest. A tag is still refused. (Found by the first real run of the container job.) *Approved by the owner, 2026-11-21.* |
-| D-E82 | **The collector proves it can write to its output directory, and the work directory lives in the data directory.** The first run on a Mac failed because the output directory was in the system temp folder, which a VM-based Docker (Colima, Docker Desktop) does not share; the controller could only say "exited with status 1". Now the container adds one check to its proof (it writes and removes a probe file as the unprivileged user), so a mis-mounted directory ends the run with `LIVE-003` before anything is sent, and the controller keeps its per-run directory under `<data dir>/live-work` (mode `0700`, emptied after each run). A data directory outside your home still fails, clearly. (Found by the first real run; **pending your approval**.) |
+| D-E82 | **The collector proves it can write to its output directory, and the work directory lives in the data directory.** The first run on a Mac failed because the output directory was in the system temp folder, which a VM-based Docker (Colima, Docker Desktop) does not share; the controller could only say "exited with status 1". Now the container adds one check to its proof (it writes and removes a probe file as the unprivileged user), so a mis-mounted directory ends the run with `LIVE-003` before anything is sent, and the controller keeps its per-run directory under `<data dir>/live-work` (mode `0700`, emptied after each run). A data directory outside your home still fails, clearly. (Found by the first real run; *approved by the owner, 2026-11-22*.) |

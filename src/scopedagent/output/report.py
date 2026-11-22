@@ -21,6 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from scopedagent.ai.fields import label
+from scopedagent.benchmarks.catalogue import catalogue, references_for
 from scopedagent.domain.models import Artifact, AuditEvent, Engagement, LiveRun, Observation, Run, Target
 from scopedagent.errors import AuditError, ErrorCode, PolicyError, ReportError, StateError
 from scopedagent.pipeline.redact import redact_text
@@ -111,6 +112,7 @@ def _finding_entry(session: Session, finding: Any, order: dict[str, int]) -> dic
         "confidence": finding.confidence,
         "evidence": evidence,
         "details": details,
+        "benchmarks": [r.as_dict() for r in references_for(details["rule_id"])] if details is not None else [],
         "reviews": reviews,
     }
     wordings = [
@@ -190,6 +192,10 @@ def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[st
         "artifacts": artifacts,
         "findings": findings,
         "audit": {"events": events, "chain_verified": verified, "head_hash": head},
+        "benchmarks": [
+            {"key": b.key, "title": b.title, "edition": b.edition, "source": b.source, "checked_on": b.checked_on}
+            for b in catalogue().benchmarks
+        ],
         "notes": notes,
         **({"live": live} if live is not None else {}),  # absent for an offline run, so its report is unchanged
     }
@@ -239,6 +245,10 @@ def _code(value: object) -> str:
     return "`" + " ".join(str(value).split()).replace("`", "'") + "`"
 
 
+def _benchmark_label(entry: dict[str, str]) -> str:
+    return f"{entry['title']} {entry['edition']}: {entry['category']} {entry['name']}"
+
+
 def _finding_markdown(finding: dict[str, Any]) -> list[str]:
     lines = [f"### {md_escape(finding['title'])}", "", f"**{md_escape(finding['label'])}**", ""]
     lines += [
@@ -252,6 +262,14 @@ def _finding_markdown(finding: dict[str, Any]) -> list[str]:
     if details is not None:
         lines += [
             f"- rule: {_code(details['rule_id'])} (version {details['rule_version']})",
+            *(
+                [
+                    "- benchmarks (closest categories, not a verdict): "
+                    + "; ".join(md_escape(_benchmark_label(b)) for b in finding["benchmarks"])
+                ]
+                if finding["benchmarks"]
+                else []
+            ),
             "- CWE suggestions (to verify): " + (", ".join(details["cwe_candidates"]) or "none"),
             f"- severity: unknown (suggested: {details['suggested_severity']['value']}, {md_escape(details['suggested_severity']['basis'])})",
             f"- exploitability: {details['exploitability']['assessment']} (an assessment, not a confirmation)",
@@ -378,6 +396,15 @@ def render_markdown(report: dict[str, Any]) -> str:
     else:
         lines += ["No draft was made. That is not proof that nothing is wrong.", ""]
     lines += [
+        "## Benchmarks",
+        "",
+        "Categories above are the closest match, read from these editions on the date shown. A category is not a diagnosis.",
+        "",
+        *[
+            f"- {md_escape(b['title'])} {md_escape(b['edition'])}, checked {b['checked_on']}: {md_escape(b['source'])}"
+            for b in report["benchmarks"]
+        ],
+        "",
         "## Audit trail",
         "",
         f"- events: {audit['events']}",

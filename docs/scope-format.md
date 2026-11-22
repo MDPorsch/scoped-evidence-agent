@@ -60,7 +60,7 @@ endpoint path with each `{name}` filled in, and a path may not pass 256 characte
 
 `mode: live` needs an `authorization` block (`engagement`: 3 to 128 characters of `A-Za-z0-9._:/#-`; `not_before`, optional; `not_after`,
 required; at most 366 days) and may carry an `egress` block (`allowed_networks`: up to 32 private ranges that never overlap the
-always-refused ones; `max_requests_per_second`: 1 to 10, default 2). Both are valid only with `mode: live`. A live scope names at most 10
+always-refused ones; `max_requests_per_second`: 1 to 10, default 2). Both are valid only with `mode: live`. A live scope names at most 20
 hosts and may not list `ai_probe` in this version. It is run only by `live run`; `run` refuses it. Both blocks join the hash.
 
 ## Host canonicalization (D-E04)
