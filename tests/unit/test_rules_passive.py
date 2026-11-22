@@ -355,7 +355,9 @@ def test_a_documented_read_the_scope_does_not_list_is_an_unassessed_inventory_dr
 
 
 def test_a_documented_change_of_state_is_not_called_drift_because_the_scope_never_reads_it() -> None:
-    assert drift(*COVERED, "DELETE /projects/{project_id}", "POST /projects") == []
+    assert drift(*COVERED, "DELETE /widgets/{id}", "POST /widgets", "PUT /widgets/{id}", "PATCH /widgets/{id}") == []
+    draft = only(drift(*COVERED, "POST /widgets", "GET /widgets"))  # control: only the readable one is reported
+    assert draft.facts == ("documented, not in scope: GET /widgets",)
 
 
 def test_a_documented_head_the_scope_does_not_list_is_drift_too() -> None:

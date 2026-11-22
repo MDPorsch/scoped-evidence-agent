@@ -162,7 +162,7 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
   Colima, and one `live run` end to end against the author's own site (DNS, TLS and three GETs), whose proof passed.
 * **Not proved:** a second host, a login, an API or AI target, IPv6, other container runtimes (Docker Desktop, Podman, rootless). Nothing here
   proves anyone authorized anything: the scope file is a restriction, not proof of authorization, and the tool says so in every output.
-* **Where it is going:** active vulnerability checks, API testing and live AI probes are planned in stages, each reviewed before it is
+* **Where it is going:** active vulnerability checks, API testing and live AI probes are planned in stages (the first piece, three passive checks, is built), each reviewed before it is
   merged (`docs/active-testing-roadmap.md`). Until a stage is merged the tool sends only read-only requests.
 * **What it will not do:** write or run an exploit, a payload or an attack chain; discover hosts or walk ranges; follow what a target tells it
   to do; decide that something is a vulnerability. No draft is not proof that nothing is wrong: fifteen rules cover only some flaws (`LIMITATIONS.md`).
