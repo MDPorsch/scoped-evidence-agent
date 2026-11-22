@@ -1,8 +1,9 @@
 # Live remote mode: design for your review
 
 **Status: approved by the owner on 2026-11-20 (D-E37 to D-E47). Built in M6 (this change), as the last milestone, and stopped for
-review. It has been exercised only against loopback servers and with the container replaced by a stand-in: the real container isolation
-has NOT been exercised (D-E46; see "How it is built" at the end).** By D-E47 it is built last, after the offline collectors,
+review. The controller has been exercised only against loopback servers with the container replaced by a stand-in. The container isolation itself
+has been run for real only in CI (six tests, one Linux runner, see `docs/milestones/M6.md`); no `live run` has gone end to end through a real
+container to a real server (D-E46; see "How it is built" at the end).** By D-E47 it is built last, after the offline collectors,
 test-first, and then stops again for review. You asked for this tool to work
 against remote, authorized targets too. That changes **egress** (the tool opens connections to networks you do not control),
 **token handling** (an AI endpoint's API key crosses a network) and, for AI probes, **what the tool sends** (a POST). You told me
@@ -253,5 +254,5 @@ A run whose proof fails never exists.
 | D-E77 | **The stored adapter names stay `offline_*`:** they name the normalisers, which are shared. A live run is marked by `runs.mode = live` and its `live_runs` row. In a live run the stored source hash is the SHA-256 of the sandbox's own source-hash line (the controller never sees the bytes). |
 | D-E78 | **The controller proves before it sends:** the allow-list goes in first, the proof comes out, and the job (with its credentials' *names*) is sent only after the proof is verified. There is no flag that skips it. |
 | D-E79 | **Certificates are parsed with `cryptography`, installed in the container image only** (the `live` extra); the controller and the offline tool do not need it. |
-| D-E80 | **Not called safe.** The real container has not been exercised here (no container runtime was running); `tests/container` and a CI job (`live isolation (real container)`) exist to do it on Linux, and the report of a live run states the proof it got. The first real exercise should be against a lab target you own, before anything else. |
+| D-E80 | **Not called safe.** The container isolation has been run for real only in CI (a GitHub-hosted Ubuntu runner: the proof, the firewall against forbidden addresses, a positive control, the posture, a refused stray job); the whole `live run` has not gone end to end through a real container to a real server, no other runtime or host was tried, and nothing was pointed at a real target. The report of a live run states the proof it got. The first real exercise should be against a lab target you own, before anything else. |
 | D-E81 | **A locally built image is pinned by its ID.** The first real CI build showed that the documented form `name@sha256:<image id>` makes Docker try to *pull* `name` from a registry: a repository digest exists only after a push. `--image` therefore also accepts the bare `sha256:<64 hex>` ID of an image built here, which is a hash of the image's content and so as fixed as a digest. A tag is still refused. (Found by the first real run of the container job; **pending your approval**, like D-E74 to D-E80.) |

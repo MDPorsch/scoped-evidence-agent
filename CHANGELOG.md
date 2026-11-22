@@ -4,7 +4,7 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
-### Added (M6: live remote mode; built, not yet exercised on a real container)
+### Added (M6: live remote mode; the container isolation has run in CI only, nothing has been pointed at a real target)
 - `scoped-agent live run` collects DNS, TLS, HTTP, AI model-list and API evidence from the hosts a `mode: live` scope declares, inside an
   isolated container that installs a default-deny firewall, proves it with a self-test and drops every privilege **before** it is sent a job;
   the controller refuses to continue unless every check passed (`docs/remote-live-design.md`). `run` still never opens a socket.

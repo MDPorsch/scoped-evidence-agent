@@ -89,10 +89,11 @@ milestone. Residual risks are listed, not hidden.
 * **SE-40 The `{name}` values are listed, not discovered.** Only the values the scope lists are asked, up to five per parameter and four
   parameters per endpoint. The tool never walks a range, a sequence or a wordlist, and a spec's own endpoints are inventory, never a
   request.
-* **SE-41 The container isolation has not been exercised on a real container by me.** Everything around it is tested (the gates, the
-  address policy, the proof gate, the output validation, the leak guard, the collector over loopback); the firewall and the self-test run
-  only in a real container, which needs Linux or Docker through Colima. `tests/container` and a CI job exist to do it. Until you or CI have
-  seen them pass, live mode is not to be pointed at anything you do not own (D-E46).
+* **SE-41 The container isolation has been run for real only in CI.** Six tests in the CI job `live isolation (real container)` passed on a
+  GitHub-hosted Ubuntu runner (the proof, the firewall against forbidden addresses with the policy bypassed, a positive control for an allowed
+  pair, the posture, a stray job refused). Not exercised: a whole `live run` through a real container to a real server, real name resolution,
+  IPv6, any other runtime or host (Docker Desktop, Colima, rootless, Podman). Until you have run `pytest -m container` on your own Docker and
+  one `live run` against a lab you own has worked, live mode is not to be pointed at anything you do not own (D-E46).
 * **SE-42 The address policy cannot tell whose address it is.** A public address may belong to a CDN, a shared host or a client's
   neighbour. The scope's hosts are the ones you wrote; the tool pins what they resolve to and cannot know who else answers there.
 * **SE-43 Authorization is a declaration.** The block, the flag and the approval are a deliberate pause and a record; in a single-user tool
