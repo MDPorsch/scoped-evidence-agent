@@ -99,12 +99,14 @@ each finding (JSON) or a section with the same label (Markdown), plus one note. 
 
 ## Decisions for this milestone
 
+Status (2026-11-21): **D-E66 and D-E69 are approved. D-E67 (activation) and D-E68 (what is sent, and the key) are not yet approved.**
+
 | ID | Decision |
 |---|---|
-| D-E66 | **The model is an optional rewording step and nothing more**, enforced by the checks above. It is Claude through the official SDK, or the offline stand-in; no other provider in 0.x. |
+| D-E66 | **The model is an optional rewording step and nothing more**, enforced by the checks above. It is Claude through the official SDK, or the offline stand-in; no other provider in 0.x. *Approved by the owner, 2026-11-21.* |
 | D-E67 | **Activation is explicit and easy:** `ai enable` (a typed confirmation that names what is sent), a private `ai.json` with no secret in it, and `findings reword` as the only command that calls a model. `run` stays free of connections. |
 | D-E68 | **What is sent is limited to rule sentences with hosts masked by default;** the key comes from an environment variable and goes only to the SDK client for the fixed Anthropic endpoint. |
-| D-E69 | **A budget per run** (calls, output tokens, total tokens) and **every failure falls back to the rule's text.** |
+| D-E69 | **A budget per run** (calls, output tokens, total tokens) and **every failure falls back to the rule's text.** *Approved by the owner, 2026-11-21.* |
 
 These are built at the owner's instruction (2026-11-21) and touch egress and token handling, so the pull request stays open for the
 owner's review before it is merged.
