@@ -29,7 +29,7 @@ MAX_HOST_INPUT = 512
 MAX_HOST = 253
 MAX_PATH = 256
 MAX_EXPIRY_DAYS = 366
-MAX_LIVE_HOSTS = 10  # D-E45
+MAX_LIVE_HOSTS = 20  # D-E45, raised from 10 by D-E86
 
 _HOST_CHARS = re.compile(r"[a-z0-9.-]+")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")

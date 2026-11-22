@@ -176,7 +176,7 @@ produce it does not exist.
 | L9 | An AI probe has a side effect | no tool invocation, fixed library probes, per-target limits (`ai-targets.md`) |
 | L10 | Load or cost on the client | 4.6 rate, budget and token limits |
 | L11 | Run outside the engagement, or by accident from CI | 4.2 window, `--ack`, approval record |
-| L12 | The tool becomes a scanner | 4.1: no discovery, at most 10 listed hosts, nothing learned from a target is ever contacted |
+| L12 | The tool becomes a scanner | 4.1: no discovery, at most 20 listed hosts, nothing learned from a target is ever contacted |
 
 ## 6. What this does not guarantee
 
@@ -214,7 +214,7 @@ container), before anything is called safe.
 | D-E42 | Credentials only for AI targets, from the environment, bearer or one named header, leak-guarded | yes |
 | D-E43 | `ai_probe` is the only non-GET live operation: one POST of a library probe, limits from the scope | yes |
 | D-E44 | Hostile data is parsed only inside the sandbox; the controller accepts schema-valid output only | yes |
-| D-E45 | Rate default 2/s, cap 10/s, at most 10 hosts in live mode | yes; tell me your clients' usual limits |
+| D-E45 | Rate default 2/s, cap 10/s, at most 10 hosts in live mode (**raised to 20 hosts by D-E86, 2026-11-22**) | yes; tell me your clients' usual limits |
 | D-E46 | Not called safe until the isolation has been exercised on a real container and a lab target; the report states the proof | yes |
 | D-E47 | Built last (M5), after offline M2 to M4, as a separate reviewed change | yes |
 
@@ -230,7 +230,7 @@ container), before anything is called safe.
 | Piece | Where | What it does |
 |---|---|---|
 | Address policy | `live/addresses.py` | The `boundarycheck` rules: public by default, private only if the scope lists the range, a few ranges never; every address of a host must pass |
-| Scope blocks | `policy/scope.py` | `authorization` (engagement, window) and `egress` (ranges, rate) in a `mode: live` scope; at most 10 hosts; they join the hash |
+| Scope blocks | `policy/scope.py` | `authorization` (engagement, window) and `egress` (ranges, rate) in a `mode: live` scope; at most 20 hosts; they join the hash |
 | Approvals | `storage/approvals.py`, migration `0005` | `approvals grant\|list\|revoke`: bound to one scope hash, an expiry, append-only, typed confirmation |
 | Controller | `live/controller.py` | gates, one resolution per host, the proof gate, validation of the sandbox output, then the **same run pipeline** as an offline run |
 | Container | `live/runtime.py`, `live/isolation.py`, `docker/collector/Dockerfile` | the whole posture in one command; firewall, self-test, privilege drop, proof, then the job |

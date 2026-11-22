@@ -164,17 +164,18 @@ def test_good_networks_are_kept_in_order() -> None:
     assert accepted(data).config.egress.allowed_networks == ["10.20.0.0/16", "fd00::/8"]
 
 
-def test_live_mode_names_at_most_ten_hosts() -> None:
-    data = live_dict()
-    data["allowed_targets"] = [
-        {"host": f"h{i}.example.invalid", "schemes": ["https"], "ports": [443], "allowed_paths": ["/"]}
-        for i in range(10)
-    ]
-    assert accepted(data)
-    data["allowed_targets"].append(
-        {"host": "h10.example.invalid", "schemes": ["https"], "ports": [443], "allowed_paths": ["/"]}
-    )
-    assert "at most 10 hosts" in str(refused(data, ErrorCode.SCOPE_007))
+def test_live_mode_names_at_most_twenty_hosts() -> None:
+    """The web targets alone are capped at 20 entries, so the host cap is reached through all three target kinds together."""
+
+    def web(i: int) -> dict[str, Any]:
+        return {"host": f"h{i}.example.invalid", "schemes": ["https"], "ports": [443], "allowed_paths": ["/"]}
+
+    data = live_dict("api-orders")  # one API host of its own
+    data["allowed_operations"] = ["http_metadata", "api_spec", "api_read", "api_options"]
+    data["allowed_targets"] = [web(i) for i in range(19)]
+    assert accepted(data)  # 19 web hosts + 1 API host = 20
+    data["allowed_targets"].append(web(19))
+    assert "at most 20 hosts" in str(refused(data, ErrorCode.SCOPE_007))  # 20 + 1 = 21
 
 
 def test_the_same_host_in_a_web_ai_and_api_target_counts_once() -> None:
