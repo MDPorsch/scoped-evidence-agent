@@ -1,7 +1,8 @@
 # Scopes for pentesting APIs (contract)
 
-Status: **approved by the owner on 2026-11-21 (D-E48 to D-E55)**; built after the offline collectors. Offline fixtures only until the live design (`remote-live-design.md`, approved) is built, and
-then only inside its isolation. It is built after the AI-target scopes, which it shares its structure with.
+Status: **approved by the owner on 2026-11-21 (D-E48 to D-E55); built in M5 (offline)**. Offline fixtures only until the live design
+(`remote-live-design.md`, approved) is built, and then only inside its isolation. It shares its structure with the AI-target scopes.
+The decisions that make the build concrete are at the end (D-E70 to D-E73); D-E70 is review-gated.
 
 ## What this adds, and where it stops
 
@@ -114,3 +115,37 @@ An API target contributes no dns, tls or http operation; list the host as a web 
 
 Whether the engagement is authorized, whether a difference between two principals is an authorization flaw (that question belongs
 to `boundarycheck` or a reviewer), how serious anything is, and whether any response value may be kept as evidence.
+
+## How it is built (M5)
+
+* **Request path.** `base_path` followed by the endpoint `path` with each `{name}` filled in (`/v1` and `/projects/{project_id}` give
+  `/v1/projects/p-1001`; a base path of `/` adds no slash). A `spec_paths` entry is absolute, not under the base path. A placeholder is a
+  whole path segment with a name of `a-z`, `0-9` and `_`, listed once; a filled-in path may not pass 256 characters, and the host,
+  the longest path and the longest origin together may not pass 400, so the recorded request line fits its field.
+* **Order.** Each endpoint's parameters vary in the order the path names them (not the order of the `params` mapping, so the hash and the
+  plan always agree), each parameter's values in the order given, and for each combination every listed principal in order.
+  `OPTIONS` uses the first listed value of each parameter, once per origin, as `anonymous`.
+* **Parameters.** At most four per endpoint, 1 to 5 listed values each, each 1 to 64 characters of letters, digits and `. _ ~ -`. Dots
+  are allowed, so `1..100` is one literal value, not a range: nothing in the tool expands a value.
+* **Principals.** `anonymous` always exists and may not be declared. No credential is read in 0.x: offline, a pack holds one recorded
+  answer per principal and request. Credentials from the environment arrive with live mode, under the rules of
+  `docs/remote-live-design.md` (D-E42).
+* **The three flags** are plain pattern matches, never a judgement. `has_stack_trace_markers`: a Python, Java, Node or Go trace in the
+  text, or a key named `stacktrace`, `stack_trace`, `traceback` or `trace`. `has_debug_markers`: `debug` set to true or 1, `DEBUG = True`,
+  or a key named `debug`. `echoes_request_headers`: a key named `authorization`, `proxy-authorization`, `cookie`, `set-cookie` or
+  `x-api-key` anywhere in the JSON.
+* **Operations without security.** An operation counts when its own `security` is an empty list, or when it has none and the document has
+  no top-level `security`. An operation that lists schemes counts as secured, whatever the schemes allow.
+* **No rule reads API evidence yet.** A run of an API scope drafts nothing and exits `0` when complete: this milestone records facts
+  (D-E52) and leaves reading them to a person and to `boundarycheck` (D-E54). A later change may add rules, each reviewed on its own.
+
+## Decisions made in the build (approved)
+
+Status (2026-11-21): **D-E70 to D-E73 are approved by the owner, including the migration.**
+
+| ID | Decision |
+|---|---|
+| D-E70 | **Migration `0004` rebuilds two tables.** SQLite cannot widen a CHECK list, so `targets` (its `kind`) and `observations` (its type and adapter lists) are recreated with the new values and every row is copied unchanged, in one transaction that checks no row was lost or orphaned. `db upgrade` first copies the database file aside (`evidence.sqlite.before-0003`, mode `0600`) and says where. This is the first migration that rewrites existing records, so it is **review-gated** (`docs/migrations.md`). *Approved by the owner, 2026-11-21.* |
+| D-E71 | **API evidence is facts only and no rule reads it in M5.** A read stores the shape of a body, never a value, and no artifact; the source hash covers the shape, not the body. *Approved by the owner, 2026-11-21.* |
+| D-E72 | **`access-control-allow-credentials` is not redacted by name.** It contains the word "credential" but holds `true` or nothing else; redacting it hid the one fact a CORS review needs and made the credentials branch of rule R-CORS-01 unreachable on stored data. Only that exact name is exempt. *Approved by the owner, 2026-11-21.* |
+| D-E73 | **A key of a fixture pack's `api` section is `principal\|METHOD\|url` (and `\|origin` for `OPTIONS`),** one spelling per request, so a pack can give each principal its own answer. *Approved by the owner, 2026-11-21.* |

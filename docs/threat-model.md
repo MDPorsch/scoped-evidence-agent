@@ -135,6 +135,22 @@ decides (SE-06).
 
 *Residual:* a wording can pass every check and still shift the meaning (SE-32); sentences go to a third party once enabled (SE-33).
 
+### T7. Testing APIs (M5; `docs/api-targets.md`)
+
+| Vector | Control | Tests |
+|---|---|---|
+| A spec that lists far more than the scope allows, or names other hosts | the spec is inventory: only the endpoints the scope lists are planned, and a server URL in it is stored as data and never contacted | AP-01, AP-02 |
+| A request that changes something | endpoint methods are `GET` or `HEAD` only (`OPTIONS` only through the origin list); `rules.state_changing_methods` can only be `forbidden` | AP-03 |
+| Guessing or enumerating identifiers | a parameter value is listed (1 to 5, 4 parameters at most), drawn from a closed alphabet; no range, pattern or wordlist exists in the format, and a spec cannot add one | AP-04, AP-05 |
+| Cost and load | `max_api_requests` is required and the whole plan must fit it before a run starts; the global budget still applies and ends a run incomplete | AP-06 |
+| Other people's data in the evidence | a body is reduced to its shape; no value is stored, hashed or reported, and a read keeps no artifact | AP-07, AP-08 |
+| A response that carries instructions or a smuggled identifier in a field name | a name that is not short and plain is recorded as `?`, the keys of a large object as `{key}`; flags are pattern matches only | AP-09 |
+| One principal given another's answer | each principal is answered from its own entry; a missing one is a recorded error | AP-10 |
+| A production system tested by mistake | `environment` is required; production needs a reference and only production may have one | AP-11 |
+| A migration that damages recorded evidence | revision `0004` is one transaction that copies every row, checks nothing was lost or orphaned, and is preceded by a copy of the database file | AP-12 |
+
+*Residual:* nothing has been run against a real API; the pack is mine (SE-37). A short field name can itself be an identifier (SE-38).
+
 ## 5. Other threats
 
 | Threat | Control | Tests |

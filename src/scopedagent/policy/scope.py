@@ -6,11 +6,13 @@ A scope is a restriction, never proof of authorization (D-E02). It is ambiguous-
 from __future__ import annotations
 
 import json
+import math
 import re
 import stat
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import product
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -35,10 +37,21 @@ _APPROVAL_REF = re.compile(r"[A-Za-z0-9._:/#-]{3,128}")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})")
 _SCHEMES = ("http", "https")
 _AI_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,39}")
+_API_ID = _AI_ID
+_PARAM_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+_PARAM_VALUE = re.compile(r"[A-Za-z0-9._~-]{1,64}")
+_PLACEHOLDER = re.compile(r"\{[^{}/]*\}")
+_LABEL_TEXT = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ,.:()_/-]{0,79}")
+_ORIGIN = re.compile(r"https://([^/:?#@\s]+)(?::([0-9]{1,5}))?")
+ANONYMOUS = "anonymous"
+MAX_PARAMS = 4
 _CONSTRAINT_ERRORS = {"greater_than", "greater_than_equal", "less_than", "less_than_equal", "too_short", "too_long"}
 
-OperationKind = Literal["dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe"]
+OperationKind = Literal[
+    "dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe", "api_spec", "api_read", "api_options"
+]
 AiOperation = Literal["ai_metadata", "ai_probe"]
+ApiOperation = Literal["api_spec", "api_read", "api_options"]
 AiCategory = Literal["prompt_injection", "system_prompt_leakage", "sensitive_information_disclosure", "output_handling"]
 RULES_NOT_AVAILABLE = "not available in this version: only forbidden is accepted"
 
@@ -105,6 +118,12 @@ def _host_for_model(value: str) -> str:
         return canonical_host(value)
     except ScopeError as exc:
         raise ScopeValueError(exc.code, exc.message) from None
+
+
+def _host_for_model_exact(value: str) -> None:
+    """An origin's host must already be canonical: one spelling only."""
+    if _host_for_model(value) != value:
+        raise ScopeValueError(ErrorCode.SCOPE_005, "an origin's host must be in canonical form (lower-case, no dot)")
 
 
 def _path_for_model(value: str) -> str:
@@ -185,13 +204,8 @@ class AiLimits(_Model):
     max_total_tokens: Annotated[int, Field(ge=1, le=200_000)]
 
 
-class AiRules(_Model):
-    """Every rule is required and `forbidden` is the only accepted value (D-E29)."""
-
-    tool_invocation: str
-    persistent_state_writes: str
-    personal_data_in_probes: str
-    target_output_to_assistant_model: str
+class _ForbiddenRules(_Model):
+    """Every rule is required and `forbidden` is the only accepted value (D-E29, D-E48)."""
 
     @field_validator("*")
     @classmethod
@@ -201,6 +215,13 @@ class AiRules(_Model):
         if value == "allowed":
             raise ScopeValueError(ErrorCode.SCOPE_011, RULES_NOT_AVAILABLE)
         raise ScopeValueError(ErrorCode.SCOPE_003, "a rule must be exactly 'forbidden'")
+
+
+class AiRules(_ForbiddenRules):
+    tool_invocation: str
+    persistent_state_writes: str
+    personal_data_in_probes: str
+    target_output_to_assistant_model: str
 
 
 class AiTarget(_Model):
@@ -334,6 +355,299 @@ class AiTarget(_Model):
         return self.probe_requests * (self.limits.max_input_tokens + self.limits.max_output_tokens)
 
 
+# ------------------------------------------------------------------------------------- API targets ----
+def _template_for_model(value: str) -> str:
+    """A request path in which a whole segment may be `{name}`. The braces are the only addition to a canonical path."""
+    names: list[str] = []
+    for segment in value.split("/")[1:]:
+        if "{" in segment or "}" in segment:
+            if not _PLACEHOLDER.fullmatch(segment) or not _PARAM_NAME.fullmatch(segment[1:-1]):
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_006, "{name} must be a whole path segment, with a name of a-z, 0-9 and _"
+                )
+            names.append(segment[1:-1])
+    if len(set(names)) != len(names):
+        raise ScopeValueError(ErrorCode.SCOPE_006, "a parameter name may appear once in a path")
+    _path_for_model(_PLACEHOLDER.sub("x", value))
+    return value
+
+
+def _placeholders(template: str) -> list[str]:
+    return [segment[1:-1] for segment in template.split("/")[1:] if _PLACEHOLDER.fullmatch(segment)]
+
+
+def _join(base_path: str, path: str) -> str:
+    return path if base_path == "/" else base_path.rstrip("/") + path
+
+
+class ApiLimits(_Model):
+    max_api_requests: Annotated[int, Field(ge=1, le=400)]
+    max_response_bytes: Annotated[int, Field(ge=1024, le=1_000_000)]
+
+
+class ApiRules(_ForbiddenRules):
+    state_changing_methods: str
+    enumeration_or_fuzzing: str
+    response_values_in_evidence: str
+    spec_widens_scope: str
+
+
+class ApiPrincipal(_Model):
+    id: str
+    label: str
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        if not _API_ID.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "id must be 2 to 40 characters of a-z, 0-9 and -, starting with a letter or digit"
+            )
+        if value == ANONYMOUS:
+            raise ScopeValueError(ErrorCode.SCOPE_003, "the principal anonymous always exists: do not list it")
+        return value
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, value: str) -> str:
+        if not _LABEL_TEXT.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "a label is 1 to 80 characters of letters, digits, space and , . : ( ) _ / -"
+            )
+        return value
+
+
+class ApiEndpoint(_Model):
+    id: str
+    method: str
+    path: str
+    params: dict[str, list[str]] = {}
+    principals: Annotated[list[str], Field(min_length=1, max_length=4)]
+    expect_auth: Literal["required", "none", "unknown"]
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        if not _API_ID.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "id must be 2 to 40 characters of a-z, 0-9 and -, starting with a letter or digit"
+            )
+        return value
+
+    @field_validator("method")
+    @classmethod
+    def _method(cls, value: str) -> str:
+        if value not in ("GET", "HEAD"):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_011, "state-changing or unsupported methods are not available in this version"
+            )
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        return _template_for_model(value)
+
+    @field_validator("params")
+    @classmethod
+    def _params(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        if len(value) > MAX_PARAMS:
+            raise ScopeValueError(ErrorCode.SCOPE_007, f"an endpoint may have at most {MAX_PARAMS} parameters")
+        for name, values in value.items():
+            if not _PARAM_NAME.fullmatch(name):
+                raise ScopeValueError(ErrorCode.SCOPE_006, "a parameter name is a-z, 0-9 and _, starting with a letter")
+            if not 1 <= len(values) <= 5 or len(set(values)) != len(values):
+                raise ScopeValueError(ErrorCode.SCOPE_007, "a parameter lists 1 to 5 different values: no ranges")
+            if any(not _PARAM_VALUE.fullmatch(v) for v in values):
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_006, "a parameter value is 1 to 64 characters of letters, digits and . _ ~ -"
+                )
+        return value
+
+    @field_validator("principals")
+    @classmethod
+    def _principals(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ScopeValueError(ErrorCode.SCOPE_009, "an endpoint may not list a principal twice")
+        return value
+
+    @model_validator(mode="after")
+    def _params_match_the_path(self) -> ApiEndpoint:
+        if set(_placeholders(self.path)) != set(self.params):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_006, "every {name} in the path needs a params list, and every params list a {name}"
+            )
+        return self
+
+    @property
+    def combination_count(self) -> int:
+        return math.prod(len(self.params[name]) for name in _placeholders(self.path))
+
+    def combinations(self) -> list[tuple[tuple[str, str], ...]]:
+        """Every listed value for every parameter, parameters in the order the path names them, values as listed."""
+        names = _placeholders(self.path)
+        return [tuple(zip(names, values, strict=True)) for values in product(*(self.params[n] for n in names))]
+
+
+def resolve_path(base_path: str, template: str, values: tuple[tuple[str, str], ...]) -> str:
+    """The exact request path of one endpoint call: the base path, then the template with each {name} filled in."""
+    chosen = dict(values)
+    segments = [chosen[s[1:-1]] if _PLACEHOLDER.fullmatch(s) else s for s in template.split("/")[1:]]
+    return _join(base_path, "/" + "/".join(segments))
+
+
+class ApiTarget(_Model):
+    id: str
+    kind: Literal["rest"]
+    environment: Literal["test", "staging", "production"]
+    production_approval_ref: str | None = None
+    host: str
+    scheme: Literal["http", "https"]
+    port: int
+    base_path: str
+    operations: Annotated[list[ApiOperation], Field(min_length=1)]
+    spec_paths: Annotated[list[str], Field(max_length=5)] = []
+    principals: Annotated[list[ApiPrincipal], Field(max_length=10)] = []
+    endpoints: Annotated[list[ApiEndpoint], Field(max_length=40)] = []
+    cors_origins: Annotated[list[str], Field(max_length=3)] = []
+    limits: ApiLimits
+    rules: ApiRules
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        if not _API_ID.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "id must be 2 to 40 characters of a-z, 0-9 and -, starting with a letter or digit"
+            )
+        return value
+
+    @field_validator("production_approval_ref")
+    @classmethod
+    def _production_ref(cls, value: str | None) -> str | None:
+        if value is not None and not _APPROVAL_REF.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003,
+                "production_approval_ref must be 3 to 128 characters of letters, digits and . _ : / # -",
+            )
+        return value
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, value: str) -> str:
+        return _host_for_model(value)
+
+    @field_validator("port")
+    @classmethod
+    def _port(cls, value: int) -> int:
+        if not 1 <= value <= 65535:
+            raise ScopeValueError(ErrorCode.SCOPE_006, "port must be an integer from 1 to 65535")
+        return value
+
+    @field_validator("base_path")
+    @classmethod
+    def _base_path(cls, value: str) -> str:
+        return _path_for_model(value)
+
+    @field_validator("operations")
+    @classmethod
+    def _unique(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ScopeValueError(ErrorCode.SCOPE_003, "a list may not repeat a value")
+        return value
+
+    @field_validator("spec_paths")
+    @classmethod
+    def _spec_paths(cls, value: list[str]) -> list[str]:
+        paths = [_path_for_model(p) for p in value]
+        if len(set(paths)) != len(paths):
+            raise ScopeValueError(ErrorCode.SCOPE_006, "spec_paths must not repeat a path")
+        return paths
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _origins(cls, value: list[str]) -> list[str]:
+        for origin in value:
+            match = _ORIGIN.fullmatch(origin)
+            if match is None:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_006, "an origin is https://host or https://host:port, nothing more"
+                )
+            _host_for_model_exact(match.group(1))
+            if match.group(2) is not None and (not 1 <= int(match.group(2)) <= 65535 or match.group(2) == "443"):
+                raise ScopeValueError(ErrorCode.SCOPE_006, "an origin port is 1 to 65535, and not 443 (it is implied)")
+        if len(set(value)) != len(value):
+            raise ScopeValueError(ErrorCode.SCOPE_003, "a list may not repeat a value")
+        return value
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ApiTarget:
+        self._check_fields()
+        self._check_principals()
+        self._check_size()
+        return self
+
+    def _check_fields(self) -> None:
+        if (self.environment == "production") != (self.production_approval_ref is not None):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_011,
+                "production_approval_ref is required for environment production and accepted only there",
+            )
+        wants = set(self.operations)
+        for present, needed, name in (
+            (bool(self.spec_paths), "api_spec" in wants, "spec_paths"),
+            (bool(self.cors_origins), "api_options" in wants, "cors_origins"),
+            (bool(self.endpoints), bool(wants & {"api_read", "api_options"}), "endpoints"),
+        ):
+            if present != needed:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_009, f"{name} are required for their operation and valid only with it"
+                )
+
+    def _check_principals(self) -> None:
+        ids = [p.id for p in self.principals]
+        if len(set(ids)) != len(ids):
+            raise ScopeValueError(ErrorCode.SCOPE_009, "two principals share an id")
+        known = {ANONYMOUS, *ids}
+        endpoint_ids = [e.id for e in self.endpoints]
+        if len(set(endpoint_ids)) != len(endpoint_ids):
+            raise ScopeValueError(ErrorCode.SCOPE_005, "two endpoints share an id")
+        for endpoint in self.endpoints:
+            if not set(endpoint.principals) <= known:
+                raise ScopeValueError(ErrorCode.SCOPE_009, "an endpoint lists a principal this target does not define")
+
+    def _check_size(self) -> None:
+        lengths = [len(path) for path in self.spec_paths]
+        for (
+            endpoint
+        ) in self.endpoints:  # the longest path each endpoint can be asked at, with its longest values filled in
+            lengths.append(
+                len(_join(self.base_path, endpoint.path))
+                + sum(max(len(v) for v in endpoint.params[n]) - len(n) - 2 for n in endpoint.params)
+            )
+        longest = max(lengths, default=0)
+        if longest > MAX_PATH:
+            raise ScopeValueError(ErrorCode.SCOPE_006, "a request path would be longer than 256 characters")
+        origin = max((len(o) for o in self.cors_origins), default=0)
+        if len(self.host) + longest + origin > 400:  # keeps the recorded request line within its 512-character field
+            raise ScopeValueError(
+                ErrorCode.SCOPE_006, "the host, the longest path and the origin are too long together"
+            )
+        if self.request_count > self.limits.max_api_requests:
+            raise ScopeValueError(
+                ErrorCode.SCOPE_007,
+                f"the plan needs {self.request_count} requests but max_api_requests is {self.limits.max_api_requests}",
+            )
+
+    @property
+    def request_count(self) -> int:
+        ops = set(self.operations)
+        spec = len(self.spec_paths) if "api_spec" in ops else 0
+        reads = sum(e.combination_count * len(e.principals) for e in self.endpoints) if "api_read" in ops else 0
+        options = len(self.endpoints) * len(self.cors_origins) if "api_options" in ops else 0
+        return spec + reads + options
+
+
 class ScopeConfig(_Model):
     engagement_id: str
     owner_approval_ref: str
@@ -341,6 +655,7 @@ class ScopeConfig(_Model):
     mode: Literal["offline", "live"] = "offline"
     allowed_targets: Annotated[list[TargetEntry], Field(max_length=20)]
     ai_targets: Annotated[list[AiTarget], Field(max_length=10)] = []
+    api_targets: Annotated[list[ApiTarget], Field(max_length=10)] = []
     allowed_operations: Annotated[list[OperationKind], Field(min_length=1)]
     max_requests: Annotated[int, Field(ge=1, le=500)]
     max_parallelism: Annotated[int, Field(ge=1, le=4)] = 2
@@ -390,10 +705,11 @@ class ScopeConfig(_Model):
 
     @model_validator(mode="after")
     def _cross_field(self) -> ScopeConfig:
-        if not self.allowed_targets and not self.ai_targets:
+        if not self.allowed_targets and not self.ai_targets and not self.api_targets:
             raise ScopeValueError(ErrorCode.SCOPE_007, "a scope needs at least one target")
         self._check_web_targets()
         self._check_ai_targets()
+        self._check_api_targets()
         return self
 
     def _check_web_targets(self) -> None:
@@ -434,6 +750,25 @@ class ScopeConfig(_Model):
             if kind in allowed and kind not in used_by_ai:
                 raise ScopeValueError(ErrorCode.SCOPE_009, f"{kind} is allowed but no AI target uses it")
 
+    def _check_api_targets(self) -> None:
+        ids: set[str] = set()
+        endpoints: set[tuple[str, str, int]] = set()
+        for api in self.api_targets:
+            endpoint = (api.scheme, api.host, api.port)
+            if api.id in ids or endpoint in endpoints:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_005, "two API targets share an id or an endpoint: they are not merged"
+                )
+            ids.add(api.id)
+            endpoints.add(endpoint)
+        allowed = set(self.allowed_operations)
+        used_by_api = {op for api in self.api_targets for op in api.operations}
+        if not used_by_api <= allowed:
+            raise ScopeValueError(ErrorCode.SCOPE_009, "an API target uses an operation the scope does not allow")
+        for kind in ("api_spec", "api_read", "api_options"):
+            if kind in allowed and kind not in used_by_api:
+                raise ScopeValueError(ErrorCode.SCOPE_009, f"{kind} is allowed but no API target uses it")
+
 
 # ----------------------------------------------------------------------------------------- plan ----
 @dataclass(frozen=True)
@@ -446,6 +781,11 @@ class PlannedOperation:
     target_id: str | None = None
     probe_set: str | None = None
     probe_index: int | None = None
+    principal: str | None = None
+    endpoint_id: str | None = None
+    method: str | None = None
+    origin: str | None = None
+    params: tuple[tuple[str, str], ...] = ()
 
 
 def plan_operations(config: ScopeConfig) -> tuple[PlannedOperation, ...]:
@@ -478,7 +818,55 @@ def plan_operations(config: ScopeConfig) -> tuple[PlannedOperation, ...]:
                     PlannedOperation("ai_probe", ai.host, ai.scheme, ai.port, ai.probe_path, ai.id, set_id, index)
                     for index in range(PROBE_SETS[set_id].count)
                 )
+    for api in config.api_targets:  # after every web and AI entry; an API target plans no dns, tls or http operation
+        operations.extend(plan_api_target(api))
     return tuple(operations)
+
+
+def plan_api_target(api: ApiTarget) -> list[PlannedOperation]:
+    """Its spec reads, then each endpoint in file order with each combination of its parameter lists and each principal,
+    then each endpoint's OPTIONS once per origin (the first listed value of each parameter) (docs/api-targets.md)."""
+    where = (api.host, api.scheme, api.port)
+    planned: list[PlannedOperation] = []
+    if "api_spec" in api.operations:
+        planned.extend(
+            PlannedOperation("api_spec", *where, path, api.id, principal=ANONYMOUS, method="GET")
+            for path in api.spec_paths
+        )
+    if "api_read" in api.operations:
+        for endpoint in api.endpoints:
+            for values in endpoint.combinations():
+                planned.extend(
+                    PlannedOperation(
+                        "api_read",
+                        *where,
+                        resolve_path(api.base_path, endpoint.path, values),
+                        api.id,
+                        principal=principal,
+                        endpoint_id=endpoint.id,
+                        method=endpoint.method,
+                        params=values,
+                    )
+                    for principal in endpoint.principals
+                )
+    if "api_options" in api.operations:
+        for endpoint in api.endpoints:
+            values = endpoint.combinations()[0]
+            planned.extend(
+                PlannedOperation(
+                    "api_options",
+                    *where,
+                    resolve_path(api.base_path, endpoint.path, values),
+                    api.id,
+                    principal=ANONYMOUS,
+                    endpoint_id=endpoint.id,
+                    method="OPTIONS",
+                    origin=origin,
+                    params=values,
+                )
+                for origin in api.cors_origins
+            )
+    return planned
 
 
 # ------------------------------------------------------------------------------------ hash/load ----
@@ -511,10 +899,40 @@ def _normalised_ai(ai: AiTarget) -> dict[str, Any]:
     }
 
 
+def _normalised_api(api: ApiTarget) -> dict[str, Any]:
+    return {
+        "id": api.id,
+        "kind": api.kind,
+        "environment": api.environment,
+        "production_approval_ref": api.production_approval_ref,
+        "host": api.host,
+        "scheme": api.scheme,
+        "port": api.port,
+        "base_path": api.base_path,
+        "operations": list(api.operations),
+        "spec_paths": list(api.spec_paths),
+        "principals": [{"id": p.id, "label": p.label} for p in api.principals],
+        "endpoints": [
+            {
+                "id": e.id,
+                "method": e.method,
+                "path": e.path,
+                "params": {name: list(values) for name, values in e.params.items()},
+                "principals": list(e.principals),
+                "expect_auth": e.expect_auth,
+            }
+            for e in api.endpoints
+        ],
+        "cors_origins": list(api.cors_origins),
+        "limits": api.limits.model_dump(),
+        "rules": api.rules.model_dump(),
+    }
+
+
 def normalised(config: ScopeConfig) -> dict[str, Any]:
     """The scope as it is hashed: defaults filled in, hosts canonical, the expiry in UTC, lists in the order given.
 
-    `ai_targets` is left out when empty, so a scope written before AI targets existed keeps its hash.
+    `ai_targets` and `api_targets` are left out when empty, so a scope written before they existed keeps its hash.
     """
     result: dict[str, Any] = {
         "engagement_id": config.engagement_id,
@@ -534,6 +952,8 @@ def normalised(config: ScopeConfig) -> dict[str, Any]:
     }
     if config.ai_targets:
         result["ai_targets"] = [_normalised_ai(ai) for ai in config.ai_targets]
+    if config.api_targets:
+        result["api_targets"] = [_normalised_api(api) for api in config.api_targets]
     return result
 
 

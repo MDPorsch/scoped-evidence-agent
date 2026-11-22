@@ -21,6 +21,7 @@ from scopedagent.policy.scope import LoadedScope, parse_scope
 from scopedagent.storage.audit import verify_chain
 from tests.support import (
     AI_PACK,
+    API_PACK,
     FIXTURES,
     NOW,
     PACKS,
@@ -40,7 +41,7 @@ from tests.support import (
 pytestmark = pytest.mark.milestone("M2")
 
 HUMAN = Actor(ActorType.HUMAN, "alice")
-ALL = [(name, f"{name}") for name in PACKS] + [(AI_PACK, AI_PACK)]
+ALL = [(name, f"{name}") for name in PACKS] + [(AI_PACK, AI_PACK), (API_PACK, API_PACK)]
 
 
 @pytest.fixture
@@ -118,7 +119,9 @@ def test_a_complete_collection_ends_drafted_with_a_verified_audit_chain_and_exit
 ) -> None:
     result = run(env, scope_name)
     db, _, _ = env
-    expected = ExitCode.OK if scope_name == "healthy" else ExitCode.REVIEW  # three: complete, with drafts to review
+    expected = (
+        ExitCode.OK if scope_name in ("healthy", API_PACK) else ExitCode.REVIEW
+    )  # three: complete, with drafts to review
     assert result.state == "DRAFTED" and result.exit_code is expected and result.coverage.complete and not result.failed
     with db.begin() as session:
         run_row = session.get(Run, result.run_id)
@@ -128,9 +131,8 @@ def test_a_complete_collection_ends_drafted_with_a_verified_audit_chain_and_exit
             and run_row.started_at == NOW
             and run_row.created_by == "alice"
         )
-        assert (
-            verify_chain(session, result.run_id) >= 2 * result.planned
-        )  # a transition and an event per observation, and more
+        floor = result.planned + result.artifacts if pack_name == API_PACK else 2 * result.planned
+        assert verify_chain(session, result.run_id) >= floor  # an event per observation (and per artifact), and more
         actions = [
             e.action
             for e in session.scalars(

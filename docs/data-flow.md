@@ -37,6 +37,8 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 | Prompt sent to a model (M4) | **not stored**; its SHA-256 only | `model_calls` (append-only), `audit_events` | provider, model, prompt version, input hash, counts, tokens, status, a sanitized detail | with the run |
 | A model's wording (M4) | yes, only if every check passed | `finding_wordings` (append-only) | one sentence beside the rule's, with the hash of the original, the model and the prompt version | with the run |
 | The AI configuration (M4) | yes, no secret in it | `<data-dir>/ai.json`, mode `0600` | provider, model, the *name* of the key variable, limits, host masking | until the operator removes it |
+| API answer (M5) | **the shape only**: status, redacted headers, content type, size, field paths with types and lengths, a digest of the structure, three flags | `observations` | a value from a body is never kept, hashed or reported; no artifact for a read | with the run |
+| An API spec document (M5) | the redacted document, and an inventory of it | `artifacts` + `observations` | counts and scheme names; server URLs as data, never contacted | as an artifact: 30 days |
 | Audit events | yes, append-only, chained | `audit_events` | | with the run |
 | Finding draft | yes | `finding_drafts`, `finding_details` (immutable), `finding_evidence` | class, conditions, assessment, validation steps, evidence ids | with the run |
 | Reviewer decision | yes, **redacted** | `finding_reviews` (append-only), `audit_events` | decision, reviewer id, reason, status after | with the run |

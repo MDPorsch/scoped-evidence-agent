@@ -37,7 +37,7 @@ def init(data_dir: Path) -> None:
 # ------------------------------------------------------------------------------------ db upgrade ----
 def test_db_upgrade_creates_the_store_and_reports_the_revision(data_dir: Path) -> None:
     result = invoke("db", "upgrade", "--data-dir", str(data_dir))
-    assert result.exit_code == 0 and "revision 0003" in result.output and str(data_dir) in result.output
+    assert result.exit_code == 0 and "revision 0004" in result.output and str(data_dir) in result.output
     assert (data_dir / "evidence.sqlite").exists()
 
 

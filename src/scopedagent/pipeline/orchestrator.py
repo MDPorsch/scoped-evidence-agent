@@ -52,7 +52,7 @@ class RunResult:
 
 
 def _kind(op: PlannedOperation) -> str:
-    return "ai" if op.kind.startswith("ai_") else "web"
+    return "ai" if op.kind.startswith("ai_") else "api" if op.kind.startswith("api_") else "web"
 
 
 async def _collect_one(

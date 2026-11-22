@@ -46,6 +46,16 @@ target is listed; a scope with no target of either kind is refused (`SCOPE-007`)
 operation, so `dns_metadata` needs a web target. The AI targets join the hash only when present: a scope without them hashes
 exactly as before.
 
+## API targets
+
+A scope may also list `api_targets` (`docs/api-targets.md`): up to ten REST APIs, each with a base path, the principals that call it,
+explicit endpoints (`GET` or `HEAD` only) whose path may hold `{name}` segments with a listed value list (1 to 5 values, never a
+range), the CORS origins to try, and a request limit. `allowed_targets` may be `[]` when an API target is listed. An API target grants
+no dns, tls or http operation. The API targets join the hash only when present, so a scope without them hashes exactly as before.
+The plan is the spec reads, then each endpoint in file order with every combination of its parameter lists and every principal, then
+each endpoint's `OPTIONS` once per origin (the first listed value of each parameter); the request path is `base_path` followed by the
+endpoint path with each `{name}` filled in, and a path may not pass 256 characters once filled in.
+
 ## Host canonicalization (D-E04)
 
 Input is accepted only if, after the steps below, it is a valid name.
@@ -100,4 +110,4 @@ A refusal carries a stable code and a path to the field, never the offending val
 | `SCOPE-008` | `follow_redirects` is not `false` |
 | `SCOPE-009` | cross-field rule broken (operation needs something the target lacks) |
 | `SCOPE-010` | the scope file changed after it was validated |
-| `SCOPE-011` | an AI-system rule is broken: the layer, a rule that is not `forbidden`, a production reference, or a probe set that is not in the library (`docs/ai-targets.md`) |
+| `SCOPE-011` | an AI-system or API rule is broken: the layer, a rule that is not `forbidden`, a production reference, a probe set that is not in the library (`docs/ai-targets.md`), or an endpoint method other than `GET` or `HEAD` (`docs/api-targets.md`) |

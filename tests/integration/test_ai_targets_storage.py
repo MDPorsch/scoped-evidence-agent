@@ -229,11 +229,20 @@ def target_row(**over: Any) -> dict[str, Any]:
     return row
 
 
-def test_the_kind_must_be_web_or_ai(db: Any) -> None:
-    for bad in ("api", "WEB", "", "ai "):
+def test_the_kind_must_be_web_ai_or_api(db: Any) -> None:
+    for bad in ("rest", "WEB", "", "ai ", "API"):
         with pytest.raises(DatabaseError), db.begin() as session:
             seed(session)
             sql_insert(session, "targets", **target_row(kind=bad))
+    with db.begin() as session:
+        seed(session)
+        sql_insert(session, "targets", **target_row(kind="api"))  # an API target has no AI target id
+
+
+def test_an_api_row_must_not_carry_an_ai_target_id(db: Any) -> None:
+    with pytest.raises(DatabaseError), db.begin() as session:
+        seed(session)
+        sql_insert(session, "targets", **target_row(kind="api", ai_target_id="support-bot"))
 
 
 def test_an_ai_row_needs_an_ai_target_id_and_a_web_row_must_not_have_one(db: Any) -> None:
@@ -259,7 +268,7 @@ def test_the_same_endpoint_may_exist_once_per_kind_but_not_twice_in_one_kind(db:
         sql_insert(session, "targets", **target_row(id="t-ai2", kind="ai", ai_target_id="bot2", **same))
 
 
-def test_the_database_accepts_the_ai_adapter_and_types_but_nothing_else(db: Any) -> None:
+def test_the_database_accepts_the_known_adapters_and_types_but_nothing_else(db: Any) -> None:
     def observation(**over: Any) -> dict[str, Any]:
         row = {
             "id": "o1",
@@ -284,10 +293,18 @@ def test_the_database_accepts_the_ai_adapter_and_types_but_nothing_else(db: Any)
     ):
         with db.begin() as session:
             sql_insert(session, "observations", **observation(**ok))
+    for ok in (
+        {"adapter": "offline_api", "observation_type": "api_spec", "id": "o3", "normalized_input_hash": "e" * 64},
+        {"adapter": "offline_api", "observation_type": "api_read", "id": "o4", "normalized_input_hash": "f" * 64},
+        {"adapter": "offline_api", "observation_type": "api_options", "id": "o5", "normalized_input_hash": "9" * 64},
+    ):
+        with db.begin() as session:
+            sql_insert(session, "observations", **observation(**ok))
     for bad in (
-        {"adapter": "offline_api", "id": "o3"},
-        {"observation_type": "api_read", "id": "o4"},
-        {"adapter": "live_ai", "id": "o5"},
+        {"adapter": "offline_apis", "id": "o6"},
+        {"observation_type": "api_write", "id": "o7"},
+        {"observation_type": "API_READ", "id": "o8"},
+        {"adapter": "live_ai", "id": "o9"},
     ):
         with pytest.raises(DatabaseError), db.begin() as session:
             sql_insert(session, "observations", **observation(**bad))

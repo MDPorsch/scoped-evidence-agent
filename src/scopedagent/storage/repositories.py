@@ -41,7 +41,7 @@ from scopedagent.errors import ErrorCode, PolicyError, StateError
 from scopedagent.ids import new_id
 from scopedagent.logs import safe_text
 from scopedagent.pipeline.redact import redact_text
-from scopedagent.policy.scope import LoadedScope, check_not_expired
+from scopedagent.policy.scope import LoadedScope, check_not_expired, plan_api_target
 from scopedagent.storage.audit import append_event
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -112,6 +112,20 @@ def register_engagement(session: Session, loaded: LoadedScope, *, now: datetime)
                 verified_scope=True,
                 kind="ai",
                 ai_target_id=ai.id,
+            )
+        )
+    for api in loaded.config.api_targets:
+        paths = list(dict.fromkeys(op.path for op in plan_api_target(api) if op.path))  # the only paths it may be sent
+        session.add(
+            Target(
+                id=new_id(),
+                engagement_id=engagement.id,
+                host_canonical=api.host,
+                scheme=api.scheme,
+                port=api.port,
+                allowed_path_prefixes=paths,
+                verified_scope=True,
+                kind="api",
             )
         )
     session.flush()
@@ -270,6 +284,11 @@ def list_runs(session: Session, *, limit: int, offset: int) -> list[Run]:
 
 
 # --------------------------------------------------------------------------------- observations ----
+def _target_kind(observation_type: str) -> str:
+    """The kind of target an observation of this type may be recorded against."""
+    return "ai" if observation_type.startswith("ai_") else "api" if observation_type.startswith("api_") else "web"
+
+
 def record_observation(
     session: Session,
     *,
@@ -317,7 +336,7 @@ def record_observation(
         target is None
         or target.engagement_id != run.engagement_id
         or (target.host_canonical, target.scheme, target.port) != wanted
-        or target.kind != ("ai" if envelope.observation_type.startswith("ai_") else "web")
+        or target.kind != _target_kind(envelope.observation_type)
     ):
         _deny(
             session,

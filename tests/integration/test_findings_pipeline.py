@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -441,7 +442,7 @@ def test_a_database_made_by_the_previous_revision_upgrades_and_keeps_its_data(tm
             "VALUES ('r1','e1','alice','offline','DRAFTED',12,5,1,'2026-11-20T00:00:00.000000Z');"
             "INSERT INTO finding_drafts VALUES ('f1','r1','An old title','tls-misconfiguration',0.5,'DRAFT',NULL,1,'2026-11-20T00:00:00.000000Z');"
         )
-    assert upgrade_database(data_dir) == "0003"
+    assert upgrade_database(data_dir) == "0004"
     db = open_database(data_dir)
     try:
         with db.begin() as session:
@@ -477,7 +478,7 @@ def test_a_database_at_revision_0002_gains_the_model_tables_and_keeps_its_data(t
         )
         before = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"model_calls", "finding_wordings"}.isdisjoint(before)
-    assert upgrade_database(data_dir) == "0003"
+    assert upgrade_database(data_dir) == "0004"
     db = open_database(data_dir)
     try:
         with db.begin() as session:
@@ -496,10 +497,10 @@ def test_a_database_at_revision_0002_gains_the_model_tables_and_keeps_its_data(t
         db.close()
 
 
-def test_the_head_revision_is_0003_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
+def test_the_head_revision_is_0004_and_an_unknown_one_is_still_refused(tmp_path: Path) -> None:
     from scopedagent.storage.database import HEAD_REVISION  # noqa: PLC0415
 
-    assert HEAD_REVISION == "0003"
+    assert HEAD_REVISION == "0004"
     data_dir = DataDir(tmp_path / "data")
     upgrade_database(data_dir)
     with raw_connection(data_dir.db_path) as connection:
@@ -593,3 +594,25 @@ def test_a_failed_correlation_says_which_phase_failed_and_a_retry_keeps_the_plan
         assert reason == "CORRELATING -> FAILED: RuntimeError while correlating"
         fresh = retry_run(session, result.run_id, actor=Actor(ActorType.HUMAN, "alice"), now=NOW)
         assert fresh.planned_operations == 6
+
+
+def test_a_cors_credentials_header_reaches_the_rule_through_the_real_pipeline(env: Any, tmp_path: Path) -> None:
+    """Found by the API fixture: redaction by header name used to replace `access-control-allow-credentials: true` (it contains
+    "credential"), so the rule's credentials branch could never fire on stored data."""
+
+    def edit(data: dict[str, Any]) -> None:
+        data["http"]["https://bad.example.invalid:443/openapi.json"]["headers"]["access-control-allow-credentials"] = [
+            "true"
+        ]
+
+    run = run_pack(env, "misconfigured", pack_variant(tmp_path, "misconfigured", edit))
+    db, _, _ = env
+    cors = [d for _, d in findings_of(db, run.run_id) if d.rule_id == "R-CORS-01"]
+    assert len(cors) == 1
+    assert "It also sets Access-Control-Allow-Credentials to true." in cors[0].conditions
+    assert cors[0].suggested_severity.value.value == "medium"
+    with db.begin() as session:
+        stored = session.execute(
+            text("SELECT normalized_json FROM observations WHERE normalized_json LIKE '%allow-credentials%'")
+        ).scalar_one()
+    assert json.loads(stored)["headers"]["access-control-allow-credentials"] == ["true"]

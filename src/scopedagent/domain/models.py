@@ -64,8 +64,17 @@ RUN_STATES = (
     "CANCELED",
     "RETRIED",
 )
-OBSERVATION_TYPES = ("dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe")
-ADAPTERS = ("offline_dns", "offline_tls", "offline_http", "offline_ai")
+OBSERVATION_TYPES = (
+    "dns_metadata",
+    "tls_metadata",
+    "http_metadata",
+    "ai_metadata",
+    "ai_probe",
+    "api_spec",
+    "api_read",
+    "api_options",
+)
+ADAPTERS = ("offline_dns", "offline_tls", "offline_http", "offline_ai", "offline_api")
 ERROR_STATUSES = (
     "ok",
     "timeout",
@@ -106,7 +115,7 @@ class Target(Base):
         CheckConstraint("port BETWEEN 1 AND 65535", name="ck_targets_port"),
         CheckConstraint(_in("scheme", ("http", "https")), name="ck_targets_scheme"),
         CheckConstraint("verified_scope IN (0, 1)", name="ck_targets_verified"),
-        CheckConstraint(_in("kind", ("web", "ai")), name="ck_targets_kind"),
+        CheckConstraint(_in("kind", ("web", "ai", "api")), name="ck_targets_kind"),
         CheckConstraint("(kind = 'ai') = (ai_target_id IS NOT NULL)", name="ck_targets_ai_target_id"),
     )
 
@@ -117,7 +126,7 @@ class Target(Base):
     port: Mapped[int] = mapped_column(Integer)
     allowed_path_prefixes: Mapped[list[str]] = mapped_column(JSON)  # exact paths: the spec's column name, D-E05
     verified_scope: Mapped[bool] = mapped_column(Boolean)
-    kind: Mapped[str] = mapped_column(String, server_default="web")  # web or ai (D-E34)
+    kind: Mapped[str] = mapped_column(String, server_default="web")  # web, ai or api (D-E34, D-E48)
     ai_target_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 

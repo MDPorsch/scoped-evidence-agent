@@ -4,7 +4,7 @@ An auditable, **local-first** assistant that collects bounded reconnaissance evi
 targets, keeps that evidence tamper-evident and redacted, and drafts observations that **a human must review**.
 It is not an autonomous exploitation agent and it never decides that something is a vulnerability.
 
-**Status: pre-alpha, milestones M0 to M4.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
+**Status: pre-alpha, milestones M0 to M5.** It collects and stores redacted evidence from **fixture packs** (recorded answers in a
 YAML file), drafts findings from it with reviewed rules, lets a person review them, and exports a report. It is **offline-only**: `run`
 opens no network connection, and live mode is deliberately not built. The one optional exception is an AI wording step that is **off by
 default** (below). The contract is in `docs/`; each document states the rules it applies.
@@ -35,7 +35,7 @@ not an exploit tool and not an autonomous agent.
 **Where it is today.** Scope checking, the database, the audit trail and the state machines exist, and so do the offline collectors,
 the rule catalogue, review and reports. DNS, TLS, HTTP and AI-reply evidence is read from a fixture pack, redacted and stored; rules
 draft findings from it (each a draft, with a class, conditions, an assessment and read-only validation steps); a person reviews each
-draft; a report can be exported. An optional, off-by-default model may reword a draft's sentences (`docs/ai-adapter.md`). Every run reports its coverage (an operation that errored or had no answer makes it exit `2`), and a
+draft; a report can be exported. A scope can also name APIs (`api_targets`): each principal's answer is recorded as facts (the shape of a body, never a value; `docs/api-targets.md`). An optional, off-by-default model may reword a draft's sentences (`docs/ai-adapter.md`). Every run reports its coverage (an operation that errored or had no answer makes it exit `2`), and a
 complete collection with drafts exits `3`. No draft is not proof that nothing is wrong: twelve rules cover only some flaws
 (`LIMITATIONS.md`). Live remote collection is an approved design (`docs/remote-live-design.md`) that is built last and reviewed
 again before use.

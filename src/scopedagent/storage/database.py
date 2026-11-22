@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from scopedagent.errors import ErrorCode, StoreError
 
-HEAD_REVISION = "0003"
+HEAD_REVISION = "0004"
 _MIGRATIONS = Path(__file__).parent / "migrations"
 
 
@@ -97,8 +97,34 @@ def _read_revision(path: Path) -> str | None:
     return revision
 
 
-def upgrade_database(data_dir: DataDir) -> str:
-    """Create the store if needed and bring it to the head revision. Returns the revision."""
+def _copy_aside(path: Path, revision: str) -> Path:
+    """A consistent copy of a database about to be migrated, next to it, private, never replacing an older one."""
+    target = path.with_name(f"{path.name}.before-{revision}")
+    number = 1
+    while target.exists() or target.is_symlink():
+        target = path.with_name(f"{path.name}.before-{revision}.{number}")
+        number += 1
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(descriptor)
+    source = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        copy = sqlite3.connect(target)
+        try:
+            source.backup(copy)
+        finally:
+            copy.close()
+    finally:
+        source.close()
+    os.chmod(target, 0o600)
+    return target
+
+
+def upgrade_database_with_backup(data_dir: DataDir) -> tuple[str, Path | None]:
+    """Create the store if needed and bring it to the head revision.
+
+    Returns the revision and, when a database that already held a schema had to change, the copy made of it first
+    (docs/migrations.md).
+    """
     _ensure_directory(data_dir.root)
     path = data_dir.db_path
     if not path.exists() and not path.is_symlink():
@@ -106,12 +132,19 @@ def upgrade_database(data_dir: DataDir) -> str:
         os.close(descriptor)
         os.chmod(path, 0o600)
     check_private(path, kind="database file")
+    before = _read_revision(path)
+    backup = _copy_aside(path, before) if before is not None and before != HEAD_REVISION else None
     command.upgrade(_alembic_config(path), "head")
     check_private(path, kind="database file")
     revision = _read_revision(path)
     if revision != HEAD_REVISION:  # pragma: no cover - alembic reached head, so this would be a bug
         raise StoreError(ErrorCode.STORE_002, "the schema is not at the expected revision after the upgrade")
-    return revision
+    return revision, backup
+
+
+def upgrade_database(data_dir: DataDir) -> str:
+    """Create the store if needed and bring it to the head revision. Returns the revision."""
+    return upgrade_database_with_backup(data_dir)[0]
 
 
 class Database:

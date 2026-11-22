@@ -24,6 +24,10 @@ _HEADER_NAME = re.compile(r"[a-z0-9_-]{1,64}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CATEGORY = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 _AI_ID = r"^[a-z0-9][a-z0-9-]{1,39}$"
+_API_ID = _AI_ID
+_PARAM_NAME = r"^[a-z][a-z0-9_]{0,31}$"
+_PARAM_VALUE = r"^[A-Za-z0-9._~-]{1,64}$"
+_SHAPE_PATH = r"^\$(?:\.(?:[A-Za-z0-9_.-]{1,40}|\{key\}|\?)|\[\])*$"
 _PROBE_SET = r"^[a-z0-9][a-z0-9-]{1,62}$"
 
 Port = Annotated[int, Field(ge=1, le=65535)]
@@ -224,14 +228,120 @@ class AiProbePayload(_Model):
     artifact_sha256: Sha256 | None
 
 
+# ----------------------------------------------------------------------------------------- API payloads ----
+class _ApiRequest(_Model):
+    api_target_id: Annotated[str, Field(pattern=_API_ID)]
+    host: Host
+    port: Port
+    scheme: Literal["http", "https"]
+    path: str
+
+    _host = field_validator("host")(_canonical_host)
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        try:
+            return canonical_path(value)
+        except ScopeError as exc:
+            raise ValueError(exc.message) from None
+
+
+class ApiSpecPayload(_ApiRequest):
+    """The spec document as inventory: what it lists, never what it permits (D-E49)."""
+
+    http_status: Annotated[int, Field(ge=100, le=599)] | None
+    headers: dict[str, list[str]]
+    body: BodySummary | None
+
+    @field_validator("headers")
+    @classmethod
+    def _headers(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        return _check_headers(value)
+
+
+class ShapeEntry(_Model):
+    path: Annotated[str, Field(max_length=200, pattern=_SHAPE_PATH)]
+    type: Literal["object", "array", "string", "number", "boolean", "null"]
+    length: Annotated[int, Field(ge=0, le=2_000_000)] | None
+
+
+class ApiFlags(_Model):
+    """Structure present in a reply, nothing more. Whether it matters is a human's judgement."""
+
+    has_stack_trace_markers: bool
+    has_debug_markers: bool
+    echoes_request_headers: bool
+
+
+class ApiReadPayload(_ApiRequest):
+    """One call of one endpoint as one principal. The body's values are never kept (D-E52): only its shape."""
+
+    endpoint_id: Annotated[str, Field(pattern=_API_ID)]
+    principal: Annotated[str, Field(pattern=_API_ID)]
+    method: Literal["GET", "HEAD"]
+    params: dict[Annotated[str, Field(pattern=_PARAM_NAME)], Annotated[str, Field(pattern=_PARAM_VALUE)]]
+    http_status: Annotated[int, Field(ge=100, le=599)] | None
+    headers: dict[str, list[str]]
+    content_type: Annotated[str, Field(max_length=255)] | None
+    size_bytes: Annotated[int, Field(ge=0, le=2_000_000)] | None
+    truncated: bool
+    shape_status: Literal["ok", "partial", "not_json", "none"]
+    shape: Annotated[list[ShapeEntry], Field(max_length=200)]
+    shape_digest: Sha256 | None
+    flags: ApiFlags | None
+
+    @field_validator("headers")
+    @classmethod
+    def _headers(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        return _check_headers(value)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ApiReadPayload:
+        if (self.shape_status in ("ok", "partial")) != bool(self.shape) or (self.shape_digest is None) != (
+            self.shape_status in ("not_json", "none")
+        ):
+            raise ValueError("a shape and its digest are present exactly when the body was JSON")
+        return self
+
+
+class ApiCors(_Model):
+    allow_origin: Annotated[str, Field(max_length=255)] | None
+    allow_credentials: Annotated[str, Field(max_length=16)] | None
+    allow_methods: Annotated[str, Field(max_length=255)] | None
+    allow_headers: Annotated[str, Field(max_length=1024)] | None
+
+
+class ApiOptionsPayload(_ApiRequest):
+    """The answer to an OPTIONS request that carries one declared origin, as headers."""
+
+    endpoint_id: Annotated[str, Field(pattern=_API_ID)]
+    origin: Annotated[str, Field(max_length=300)]
+    http_status: Annotated[int, Field(ge=100, le=599)] | None
+    allow: Annotated[list[Annotated[str, Field(pattern=r"^[A-Z]{3,10}$")]], Field(max_length=12)]
+    cors: ApiCors | None
+
+
 # -------------------------------------------------------------------------------------- envelope ----
-Payload = DnsPayload | TlsPayload | HttpPayload | AiMetadataPayload | AiProbePayload
+Payload = (
+    DnsPayload
+    | TlsPayload
+    | HttpPayload
+    | AiMetadataPayload
+    | AiProbePayload
+    | ApiSpecPayload
+    | ApiReadPayload
+    | ApiOptionsPayload
+)
 PAYLOAD_MODELS: dict[str, type[_Model]] = {
     "dns_metadata": DnsPayload,
     "tls_metadata": TlsPayload,
     "http_metadata": HttpPayload,
     "ai_metadata": AiMetadataPayload,
     "ai_probe": AiProbePayload,
+    "api_spec": ApiSpecPayload,
+    "api_read": ApiReadPayload,
+    "api_options": ApiOptionsPayload,
 }
 _ADAPTER_FOR = {
     "dns_metadata": "offline_dns",
@@ -239,12 +349,24 @@ _ADAPTER_FOR = {
     "http_metadata": "offline_http",
     "ai_metadata": "offline_ai",
     "ai_probe": "offline_ai",
+    "api_spec": "offline_api",
+    "api_read": "offline_api",
+    "api_options": "offline_api",
 }
 
 
 class ObservationEnvelope(_Model):
-    adapter: Literal["offline_dns", "offline_tls", "offline_http", "offline_ai"]
-    observation_type: Literal["dns_metadata", "tls_metadata", "http_metadata", "ai_metadata", "ai_probe"]
+    adapter: Literal["offline_dns", "offline_tls", "offline_http", "offline_ai", "offline_api"]
+    observation_type: Literal[
+        "dns_metadata",
+        "tls_metadata",
+        "http_metadata",
+        "ai_metadata",
+        "ai_probe",
+        "api_spec",
+        "api_read",
+        "api_options",
+    ]
     target: Target
     normalized_input: Annotated[str, Field(min_length=1, max_length=512)]
     error_status: Annotated[ErrorStatus, Field(strict=False)]
