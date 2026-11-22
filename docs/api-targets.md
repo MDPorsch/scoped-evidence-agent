@@ -141,9 +141,11 @@ to `boundarycheck` or a reviewer), how serious anything is, and whether any resp
 
 ## Decisions made in the build (to review)
 
+Status (2026-11-21): **D-E70 (the migration) and D-E73 (the pack key) are approved. D-E71 (facts only) and D-E72 (the CORS credentials header) are not yet approved.**
+
 | ID | Decision |
 |---|---|
-| D-E70 | **Migration `0004` rebuilds two tables.** SQLite cannot widen a CHECK list, so `targets` (its `kind`) and `observations` (its type and adapter lists) are recreated with the new values and every row is copied unchanged, in one transaction that checks no row was lost or orphaned. `db upgrade` first copies the database file aside (`evidence.sqlite.before-0003`, mode `0600`) and says where. This is the first migration that rewrites existing records, so it is **review-gated** (`docs/migrations.md`). |
+| D-E70 | **Migration `0004` rebuilds two tables.** SQLite cannot widen a CHECK list, so `targets` (its `kind`) and `observations` (its type and adapter lists) are recreated with the new values and every row is copied unchanged, in one transaction that checks no row was lost or orphaned. `db upgrade` first copies the database file aside (`evidence.sqlite.before-0003`, mode `0600`) and says where. This is the first migration that rewrites existing records, so it is **review-gated** (`docs/migrations.md`). *Approved by the owner, 2026-11-21.* |
 | D-E71 | **API evidence is facts only and no rule reads it in M5.** A read stores the shape of a body, never a value, and no artifact; the source hash covers the shape, not the body. |
 | D-E72 | **`access-control-allow-credentials` is not redacted by name.** It contains the word "credential" but holds `true` or nothing else; redacting it hid the one fact a CORS review needs and made the credentials branch of rule R-CORS-01 unreachable on stored data. Only that exact name is exempt. |
-| D-E73 | **A key of a fixture pack's `api` section is `principal\|METHOD\|url` (and `\|origin` for `OPTIONS`),** one spelling per request, so a pack can give each principal its own answer. |
+| D-E73 | **A key of a fixture pack's `api` section is `principal\|METHOD\|url` (and `\|origin` for `OPTIONS`),** one spelling per request, so a pack can give each principal its own answer. *Approved by the owner, 2026-11-21.* |
