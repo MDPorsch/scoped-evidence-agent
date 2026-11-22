@@ -14,8 +14,8 @@ unless the scope switches it on.**
 ## 2. What stays forbidden (D-E83), whatever the scope says
 
 Exploitation of any kind; chaining attacks; extracting data (a response body is never stored: only yes/no facts about it); guessing or
-brute-forcing logins or ids; bursts of requests or anything resembling load; any request that changes state (**GET, HEAD and OPTIONS only**,
-checked in three places: the scope, the job format and the collector); request bodies; finding hosts; following redirects; making the target
+brute-forcing logins or ids; bursts of requests or anything resembling load; any request that changes state (**GET, HEAD and OPTIONS only**:
+today the scope and the job format enforce it, and Stage 2 adds the collector as a third check); request bodies; finding hosts; following redirects; making the target
 contact a third party (no "fetch this URL" tests).
 
 ## 3. The checks
