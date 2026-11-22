@@ -1,0 +1,50 @@
+[
+  {
+    "rule_id": "R-HDR-01",
+    "vulnerability_class": "missing_security_header",
+    "title": "Missing security headers on weak.example.invalid:443",
+    "confidence": 0.7,
+    "evidence": [0, 1, 2],
+    "cwe_candidates": ["CWE-693"],
+    "assessment": "unlikely",
+    "suggested_severity": "info",
+    "conditions": ["X-Content-Type-Options was absent from all 3 collected responses of this target."],
+    "facts": [],
+    "step_kinds": ["read_recorded_observation", "rerequest_listed_path", "owner_confirmation"]
+  },
+  {
+    "rule_id": "R-COOKIE-01",
+    "vulnerability_class": "insecure_cookie",
+    "title": "Cookie flags missing on weak.example.invalid:443",
+    "confidence": 0.5,
+    "evidence": [0, 1],
+    "cwe_candidates": ["CWE-614", "CWE-1004", "CWE-1275"],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "1 cookie has no Secure attribute, so a browser may send it over plain http.",
+      "1 cookie has no HttpOnly attribute, so a script on the page can read it.",
+      "1 cookie has no SameSite attribute, so the site does not state whether it goes with cross-site requests."
+    ],
+    "facts": ["cookie lacking Secure: sid", "cookie lacking HttpOnly: pref", "cookie lacking SameSite: sid"],
+    "step_kinds": ["read_recorded_observation", "rerequest_listed_path", "owner_confirmation"]
+  },
+  {
+    "rule_id": "R-HDR-02",
+    "vulnerability_class": "weak_header_policy",
+    "title": "Weak security header policy on weak.example.invalid:443",
+    "confidence": 0.6,
+    "evidence": [0],
+    "cwe_candidates": ["CWE-693"],
+    "assessment": "conditional",
+    "suggested_severity": "low",
+    "conditions": [
+      "The Content-Security-Policy lets scripts use eval ('unsafe-eval').",
+      "The Content-Security-Policy lets any inline script run ('unsafe-inline' with no nonce or hash).",
+      "The Strict-Transport-Security max-age is 3600 seconds, under 180 days.",
+      "The Referrer-Policy is unsafe-url, which sends the full address to other sites."
+    ],
+    "facts": [],
+    "step_kinds": ["read_recorded_observation", "rerequest_listed_path", "owner_confirmation"]
+  }
+]

@@ -1,0 +1,55 @@
+engagement_id: lab-api-drift-001
+owner_approval_ref: local-lab-consent
+expires_at: '2026-12-31T23:59:00Z'
+mode: offline
+allowed_targets: []
+allowed_operations: [api_spec, api_read, api_options]
+max_requests: 20
+max_parallelism: 2
+per_request_timeout_seconds: 5
+max_response_bytes: 100000
+follow_redirects: false
+api_targets:
+  - id: orders-api
+    kind: rest
+    environment: staging
+    host: api.staging.example.invalid
+    scheme: https
+    port: 443
+    base_path: /v1
+    operations: [api_spec, api_read, api_options]
+    spec_paths: ['/openapi.json']
+    principals:
+      - id: tenant-a-user
+        label: Tenant A, editor
+      - id: tenant-b-user
+        label: Tenant B, viewer
+    endpoints:
+      - id: list-projects
+        method: GET
+        path: /projects
+        principals: [anonymous, tenant-a-user]
+        expect_auth: required
+      - id: get-project
+        method: GET
+        path: /projects/{project_id}
+        params:
+          project_id: ['p-1001', 'p-2002']
+        principals: [tenant-a-user, tenant-b-user]
+        expect_auth: required
+      - id: health
+        method: HEAD
+        path: /health
+        principals: [anonymous]
+        expect_auth: none
+    cors_origins: ['https://untrusted.example.invalid']
+    limits:
+      max_api_requests: 24
+      max_response_bytes: 100000
+    rules:
+      state_changing_methods: forbidden
+      enumeration_or_fuzzing: forbidden
+      response_values_in_evidence: forbidden
+      spec_widens_scope: forbidden
+checks:
+  passive: [spec_drift]

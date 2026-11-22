@@ -18,6 +18,12 @@ PACKS = ("healthy", "misconfigured", "poisoned")
 SCOPE_FILES = {name: FIXTURES / "approved_scope" / f"lab-{name}.yaml" for name in PACKS}
 AI_PACK = "ai-support-bot"
 SCOPE_FILES[AI_PACK] = FIXTURES / "approved_scope" / f"{AI_PACK}.yaml"  # the AI-system scope (not one of PACKS)
+PASSIVE_PACK = "passive"
+SCOPE_FILES[PASSIVE_PACK] = FIXTURES / "approved_scope" / f"{PASSIVE_PACK}.yaml"  # the passive-checks scope (Stage 2a)
+API_DRIFT_PACK = "api-drift"
+SCOPE_FILES[API_DRIFT_PACK] = (
+    FIXTURES / "approved_scope" / f"{API_DRIFT_PACK}.yaml"
+)  # api-orders plus the spec_drift check
 API_PACK = "api-orders"
 SCOPE_FILES[API_PACK] = FIXTURES / "approved_scope" / f"{API_PACK}.yaml"  # the API scope (not one of PACKS)
 

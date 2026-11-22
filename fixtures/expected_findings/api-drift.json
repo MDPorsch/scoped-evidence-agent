@@ -1,0 +1,15 @@
+[
+  {
+    "rule_id": "R-API-02",
+    "vulnerability_class": "api_inventory_drift",
+    "title": "API description and scope disagree for orders-api",
+    "confidence": 0.5,
+    "evidence": [0],
+    "cwe_candidates": [],
+    "assessment": "not_assessed",
+    "suggested_severity": "info",
+    "conditions": ["1 read operation is documented in the API description but not listed in the scope."],
+    "facts": ["documented, not in scope: GET /internal/debug"],
+    "step_kinds": ["read_recorded_observation", "owner_confirmation"]
+  }
+]

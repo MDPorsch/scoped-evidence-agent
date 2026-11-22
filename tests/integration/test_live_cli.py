@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from scopedagent import cli as cli_module
@@ -63,6 +64,36 @@ def setup(tmp_path: Path, port: int) -> tuple[str, Path, str]:
     )
     assert out.exit_code == 0, out.output
     return data, scope, next(w for w in out.output.split() if len(w) == 32)
+
+
+def test_an_approval_shows_the_checks_the_scope_switches_on_before_it_asks_for_the_typed_hash(tmp_path: Path) -> None:
+    data = str(tmp_path / "data")
+    assert invoke("db", "upgrade", "--data-dir", data).exit_code == 0
+    plain = write_scope(tmp_path, 9)
+    shown = invoke(
+        "approvals", "grant", "--scope", str(plain), "--until", "2026-11-27T12:00:00Z", "--data-dir", data, input="\n"
+    )
+    assert "checks switched on" not in shown.output  # none switched on: nothing is said
+    body = yaml.safe_load(plain.read_text())
+    body["checks"] = {"passive": ["header_quality"]}
+    checked = tmp_path / "checked.yaml"
+    checked.write_text(yaml.safe_dump(body, sort_keys=False))
+    sha = parse_scope(checked.read_text(), now=NOW).sha256
+    out = invoke(
+        "approvals",
+        "grant",
+        "--scope",
+        str(checked),
+        "--until",
+        "2026-11-27T12:00:00Z",
+        "--data-dir",
+        data,
+        input=sha[:8] + "\n",
+    )
+    assert out.exit_code == 0, out.output
+    assert out.output.index("checks switched on: passive header_quality") < out.output.index(
+        "Type the first 8 characters"
+    )
 
 
 def test_run_never_starts_a_live_scope_and_never_builds_a_runtime(

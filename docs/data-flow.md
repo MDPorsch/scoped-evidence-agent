@@ -34,6 +34,7 @@ fixture pack ──► offline adapter (dns | tls | http | ai) ◄─ budget per
 | Response body | **redacted** bytes only | `artifacts` + file | content-addressed file, `0600` | **30 days** by default (1 to 365), then purged with a receipt |
 | A compressed or binary body | **never** (a placeholder with its size is stored, marked `metadata_only`) | `artifacts` + file | | as above |
 | Cookies, API keys, authorization values | **never** (replaced before storage) | | `[REDACTED]` or a keyed fingerprint | n/a |
+| A cookie's **name and three flags** (Secure, HttpOnly, SameSite) | yes: read from `Set-Cookie` before the value is discarded; the value is never kept | `observations` | at most 16 per response; an unusual name is stored as `?` | with the observation |
 | Prompt sent to a model (M4) | **not stored**; its SHA-256 only | `model_calls` (append-only), `audit_events` | provider, model, prompt version, input hash, counts, tokens, status, a sanitized detail | with the run |
 | A model's wording (M4) | yes, only if every check passed | `finding_wordings` (append-only) | one sentence beside the rule's, with the hash of the original, the model and the prompt version | with the run |
 | The AI configuration (M4) | yes, no secret in it | `<data-dir>/ai.json`, mode `0600` | provider, model, the *name* of the key variable, limits, host masking | until the operator removes it |

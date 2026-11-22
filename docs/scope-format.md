@@ -56,6 +56,23 @@ The plan is the spec reads, then each endpoint in file order with every combinat
 each endpoint's `OPTIONS` once per origin (the first listed value of each parameter); the request path is `base_path` followed by the
 endpoint path with each `{name}` filled in, and a path may not pass 256 characters once filled in.
 
+## Optional checks (`checks`)
+
+A scope with no `checks` block behaves exactly as it always has. The block switches on checks beyond plain collection
+(`docs/stage2-design.md`); in this version it takes one key:
+
+```yaml
+checks:
+  passive: [cookie_flags, header_quality, spec_drift]   # 1 to 3 of these, no repeats
+```
+
+* `passive` checks **read what the run already collected and send nothing new.** `cookie_flags` (rule R-COOKIE-01) and
+  `header_quality` (R-HDR-02) need `http_metadata` to be allowed; `spec_drift` (R-API-02) needs an API target that allows `api_spec`.
+  A check with nothing to read is refused (`SCOPE-009`), as an allowed operation no target can use is.
+* The block joins the scope hash **only when present** and in the order written, so an existing scope keeps its hash and an approval
+  covers exactly the checks it names. `scope validate` and `approvals grant` print the checks that are switched on.
+* Unknown keys are refused, so a later kind of check cannot be switched on by an older tool by accident.
+
 ## Live mode
 
 `mode: live` needs an `authorization` block (`engagement`: 3 to 128 characters of `A-Za-z0-9._:/#-`; `not_before`, optional; `not_after`,

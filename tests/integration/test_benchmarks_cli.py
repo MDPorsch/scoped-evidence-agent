@@ -45,7 +45,8 @@ def test_status_lists_each_edition_with_its_check_date_its_source_and_the_gaps()
     assert "OWASP API Security Top 10 2023" in text and "OWASP Top 10 for LLM Applications 2026" in text
     assert "A04    Cryptographic Failures" in text and "R-TLS-01, R-REDIR-01" in text
     assert "A05    Injection" in text and "no rule yet" in text
-    assert "2 of 10 categories have a rule" in text  # the web Top 10 and the API list
+    assert "3 of 10 categories have a rule" in text  # the web Top 10: A02, A04 and A07
+    assert "2 of 10 categories have a rule" in text  # the API list: API8 and API9
     assert "4 of 10 categories have a rule" in text  # the LLM list
     assert "never a verdict" in text and "may be out of date" not in text
 
@@ -63,7 +64,7 @@ def test_status_says_so_when_a_benchmark_has_not_been_checked_for_longer_than_th
 def test_rules_lists_every_rule_with_its_categories_and_the_reason() -> None:
     out = invoke("benchmarks", "rules")
     assert out.exit_code == 0
-    assert out.output.count("\n  OWASP") >= 12 and "R-AI-02  (ai_system_prompt_leakage)" in out.output
+    assert out.output.count("\n  OWASP") >= 15 and "R-AI-02  (ai_system_prompt_leakage)" in out.output
     assert "OWASP Top 10 for LLM Applications 2026: LLM08 Hidden Context Exposure" in out.output
     assert "closest category" in out.output
 

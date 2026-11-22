@@ -31,8 +31,9 @@ and never decides on its own that something is a vulnerability.
 3. **It redacts before it stores.** Cookies, keys and tokens are replaced before anything is written. Every artifact is named by its hash,
    files are private (`0600`), and evidence expires after 30 days unless you say otherwise.
 4. **It logs everything tamper-evidently.** Each step, and each refused attempt, is an entry in a hash-chained audit trail (`audit verify` recomputes it).
-5. **It drafts, and stops.** Twelve reviewed rules (TLS, security headers, version disclosure, sensitive `robots.txt` paths, insecure
-   redirects, exposed API descriptions, permissive CORS, external DNS aliases and four AI-system cases) turn observations into **drafts**.
+5. **It drafts, and stops.** Fifteen reviewed rules (TLS, security headers, version disclosure, sensitive `robots.txt` paths, insecure
+   redirects, exposed API descriptions, permissive CORS, external DNS aliases, four AI-system cases, and three optional
+   "passive" checks on cookie flags, header quality and API description drift) turn observations into **drafts**.
    A draft names the flaw class, the evidence behind it, the conditions under which it matters, an exploitability *assessment* (never a
    confirmation) and **read-only steps a person can run to check it**. Only a human reviewer can validate a draft.
 6. **It names the OWASP category beside each rule** (Top 10 2025, API Security Top 10 2023, LLM Top 10 2026), as the closest match and never a
@@ -164,7 +165,7 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
 * **Where it is going:** active vulnerability checks, API testing and live AI probes are planned in stages, each reviewed before it is
   merged (`docs/active-testing-roadmap.md`). Until a stage is merged the tool sends only read-only requests.
 * **What it will not do:** write or run an exploit, a payload or an attack chain; discover hosts or walk ranges; follow what a target tells it
-  to do; decide that something is a vulnerability. No draft is not proof that nothing is wrong: twelve rules cover only some flaws (`LIMITATIONS.md`).
+  to do; decide that something is a vulnerability. No draft is not proof that nothing is wrong: fifteen rules cover only some flaws (`LIMITATIONS.md`).
 
 ## Why it is shaped this way
 
@@ -180,7 +181,7 @@ review as an offline run. Design and threat model: `docs/remote-live-design.md`.
 | `docs/scope-format.md` | the scope file contract and the canonical host rules |
 | `docs/data-flow.md` | what is stored, redacted, retained and sent |
 | `docs/cli.md` | the commands and the exit codes |
-| `docs/correlator.md` | the twelve rules and how a draft is made |
+| `docs/correlator.md` | the fifteen rules and how a draft is made |
 | `docs/benchmarks.md` | the OWASP editions the rules are mapped to, and how that is kept current |
 | `docs/active-testing-roadmap.md` | the plan to add active checks, API testing and live AI probes, and the decisions behind it |
 | `docs/api-targets.md`, `docs/ai-targets.md` | the API and AI-system scopes |

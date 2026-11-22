@@ -19,7 +19,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 MAX_STEPS = 8
 _CONTROL = frozenset({"Cc", "Cf", "Zl", "Zp"})  # control, format (bidirectional marks), line and paragraph separators
 _CWE = re.compile(r"CWE-[0-9]{1,5}")
-_RULE_ID = re.compile(r"R-[A-Z]{2,5}-[0-9]{2}")
+_RULE_ID = re.compile(r"R-[A-Z]{2,8}-[0-9]{2}")  # R-COOKIE-01 is six letters
 _OBSERVATION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
@@ -31,6 +31,9 @@ class VulnClass(StrEnum):
     EXPOSED_API_DOCUMENTATION = "exposed_api_documentation"
     PERMISSIVE_CORS = "permissive_cors"
     DNS_EXTERNAL_REFERENCE = "dns_external_reference"
+    INSECURE_COOKIE = "insecure_cookie"
+    WEAK_HEADER_POLICY = "weak_header_policy"
+    API_INVENTORY_DRIFT = "api_inventory_drift"
     AI_PROMPT_INJECTION_SUSCEPTIBILITY = "ai_prompt_injection_susceptibility"
     AI_SYSTEM_PROMPT_LEAKAGE = "ai_system_prompt_leakage"
     AI_SENSITIVE_INFORMATION_DISCLOSURE = "ai_sensitive_information_disclosure"

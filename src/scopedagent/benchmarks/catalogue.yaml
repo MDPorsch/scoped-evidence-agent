@@ -98,6 +98,21 @@ rules:
     - benchmark: owasp-top10
       category: A02
       note: closest category; an alias that leaves the listed hosts is an inventory and configuration question
+  R-COOKIE-01:
+    - benchmark: owasp-top10
+      category: A02
+      note: a cookie flag is a browser-side protection the site did not set
+    - benchmark: owasp-top10
+      category: A07
+      note: if the cookie holds a session, a missing flag is a session-handling weakness
+  R-HDR-02:
+    - benchmark: owasp-top10
+      category: A02
+      note: a security header that is present but weak is a configuration choice
+  R-API-02:
+    - benchmark: owasp-api-top10
+      category: API9
+      note: the documented endpoints and the reviewed endpoints disagree, which is an inventory question
   R-AI-01:
     - benchmark: owasp-llm-top10
       category: LLM01

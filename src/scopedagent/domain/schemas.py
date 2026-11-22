@@ -148,6 +148,15 @@ def _check_headers(value: dict[str, list[str]]) -> dict[str, list[str]]:
     return value
 
 
+class CookieFlags(_Model):
+    """A cookie as a response set it: its name and three flags, never its value (docs/stage2-design.md, check A1)."""
+
+    name: Annotated[str, Field(pattern=r"^(?:[A-Za-z0-9_.-]{1,64}|\?)$")]
+    secure: bool
+    http_only: bool
+    same_site: Literal["strict", "lax", "none", "missing", "other"]
+
+
 class HttpPayload(_Model):
     host: Host
     port: Port
@@ -158,6 +167,7 @@ class HttpPayload(_Model):
     headers: dict[str, list[str]]
     redirect_location: Annotated[str, Field(max_length=2048)] | None
     body: BodySummary | None
+    cookies: Annotated[list[CookieFlags], Field(max_length=16)] = []  # absent in an observation stored before M7
 
     _host = field_validator("host")(_canonical_host)
 

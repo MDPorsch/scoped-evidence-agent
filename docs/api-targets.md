@@ -24,7 +24,7 @@ anything. It reads, exactly as far as the scope says.
 
 | Risk | The rule |
 |---|---|
-| **A spec lists far more than you may touch** | An OpenAPI document is **inventory, never scope**. Only endpoints the scope lists are contacted; a hostile or generous spec cannot widen it (D-E49) |
+| **A spec lists far more than you may touch** | An OpenAPI document is **inventory, never scope** (the summary lists up to 200 documented operations as `METHOD /path`, used by the optional `spec_drift` check to compare them with what the scope lists). Only endpoints the scope lists are contacted; a hostile or generous spec cannot widen it (D-E49) |
 | **Reads can still hurt** | `GET` can have side effects and cost; limits are required, methods are `GET`/`HEAD`/`OPTIONS` only (D-E50) |
 | **Guessing is scanning** | Parameter values are **listed**, at most 5 per parameter. No ranges, no sequences, no wildcards (D-E50) |
 | **Responses hold other people's data** | By default only the **shape** of a body is recorded (field names, JSON types, lengths), never values (D-E52) |

@@ -808,6 +808,316 @@ def _dns_rule(ctx: RuleContext) -> list[RuleDraft]:
     return drafts
 
 
+# ---------------------------------------------------------------------------------------------- R-COOKIE-01 ----
+_COOKIE_SHAPE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def _passive(ctx: RuleContext, name: str) -> bool:
+    """A passive check runs only when the scope switched it on (docs/stage2-design.md)."""
+    return ctx.scope.checks is not None and name in ctx.scope.checks.passive
+
+
+def _cookie_rule(ctx: RuleContext) -> list[RuleDraft]:
+    if not _passive(ctx, "cookie_flags"):
+        return []
+    drafts = []
+    for (host, _scheme, port), views in _group(ctx.of("http_metadata"), _web_key).items():
+        lacking: dict[str, dict[str, None]] = {"secure": {}, "http_only": {}, "same_site": {}}
+        evidence: list[str] = []
+        for view in views:
+            weak = False
+            for cookie in view.payload.cookies:
+                if view.payload.scheme == "https" and not cookie.secure:
+                    lacking["secure"][cookie.name] = None
+                    weak = True
+                if not cookie.http_only:
+                    lacking["http_only"][cookie.name] = None
+                    weak = True
+                if cookie.same_site == "missing":
+                    lacking["same_site"][cookie.name] = None
+                    weak = True
+            if weak:
+                evidence.append(view.id)
+        if not evidence:
+            continue
+        conditions, facts, cwes = [], [], []
+        wording = {
+            "secure": (
+                "no Secure attribute, so a browser may send {it} over plain http.",
+                "cookie lacking Secure",
+                614,
+            ),
+            "http_only": (
+                "no HttpOnly attribute, so a script on the page can read {it}.",
+                "cookie lacking HttpOnly",
+                1004,
+            ),
+            "same_site": (
+                "no SameSite attribute, so the site does not state whether {it} goes with cross-site requests.",
+                "cookie lacking SameSite",
+                1275,
+            ),
+        }
+        for flag, names in lacking.items():
+            if not names:
+                continue
+            text, label, cwe = wording[flag]
+            n = len(names)
+            conditions.append(
+                f"{n} {_plural(n, 'cookie has', 'cookies have')} " + text.format(it=_plural(n, "it", "them"))
+            )
+            cwes.append(cwe)
+            facts += [f for name in names if (f := _fact(label, name, _COOKIE_SHAPE))]
+        ids = tuple(evidence)
+        drafts.append(
+            _draft(
+                rule_id="R-COOKIE-01",
+                rule_version=1,
+                vulnerability_class=VulnClass.INSECURE_COOKIE,
+                title=f"Cookie flags missing on {host}:{port}",
+                confidence=0.5,
+                evidence=ids,
+                cwe_candidates=_cwe(*cwes),
+                conditions=tuple(conditions),
+                assessment=Assessment.CONDITIONAL,
+                preconditions=(
+                    "The cookie carries a login session or other sensitive state.",
+                    "An attacker can read or cause a plain-http request, or run script in a page of the site.",
+                ),
+                attacker_position="On the network path, or able to run script in a page of the site.",
+                unknowns=(
+                    "Whether any listed cookie holds a session or other sensitive data: the tool never saw a cookie's value.",
+                    "Which flags the browser applies by default for this site.",
+                ),
+                basis="Rule R-COOKIE-01: a response set a cookie without a protective flag. It matters only if the cookie is sensitive.",
+                specs=(
+                    _read(ids, "the recorded cookie flags are as listed", ("cookies",), tuple(facts[:3])),
+                    _rerequest(next(v for v in views if v.id == ids[0]), "the cookie is still set without the flag"),
+                    _owner(
+                        ids,
+                        "Does any cookie listed hold a login session or other sensitive state?",
+                        "the cookie is sensitive",
+                    ),
+                ),
+                decision_guide=_guide(
+                    "A cookie that holds a session or sensitive data lacks a flag that protects it.",
+                    "The listed cookies hold nothing sensitive (for example a language preference).",
+                ),
+                remediation="Set Secure and HttpOnly on session cookies, and state SameSite (Lax or Strict) explicitly.",
+                severity=SeverityValue.LOW,
+                severity_basis="A missing cookie flag. Impact depends on what the cookie holds, which the tool cannot see.",
+                facts=tuple(facts[:MAX_FACTS]),
+            )
+        )
+    return drafts
+
+
+# ------------------------------------------------------------------------------------------------ R-HDR-02 ----
+HSTS_SHORT_SECONDS = 15_552_000  # 180 days: a shorter max-age protects a returning visitor for less than half a year
+_MAX_AGE = re.compile(r"max-age\s*=\s*\"?(\d{1,12})", re.IGNORECASE)
+_NONCE_OR_HASH = re.compile(r"'(?:nonce-|sha256-|sha384-|sha512-)", re.IGNORECASE)
+
+
+def _csp_script_sources(value: str) -> list[str] | None:
+    """The source list that governs scripts: `script-src`, else `default-src`, else None. Lower-cased tokens."""
+    directives: dict[str, list[str]] = {}
+    for part in value.split(";"):
+        tokens = part.split()
+        if tokens:
+            directives.setdefault(tokens[0].lower(), [t.lower() for t in tokens[1:]])
+    return directives.get("script-src", directives.get("default-src"))
+
+
+def _header_policy_issues(headers: dict[str, list[str]]) -> list[str]:
+    issues: list[str] = []
+    csp = headers.get("content-security-policy", [])
+    sources = _csp_script_sources(csp[0]) if csp else None
+    if sources is not None:
+        if "'unsafe-eval'" in sources:
+            issues.append("The Content-Security-Policy lets scripts use eval ('unsafe-eval').")
+        if (
+            "'unsafe-inline'" in sources
+            and not _NONCE_OR_HASH.search(" ".join(sources))
+            and "'strict-dynamic'" not in sources
+        ):
+            issues.append(
+                "The Content-Security-Policy lets any inline script run ('unsafe-inline' with no nonce or hash)."
+            )
+        if "*" in sources:
+            issues.append("The Content-Security-Policy lets scripts load from any host (*).")
+    hsts = headers.get("strict-transport-security", [])
+    if hsts:
+        found = _MAX_AGE.search(hsts[0])
+        if found is None:
+            issues.append("The Strict-Transport-Security header has no max-age.")
+        elif int(found.group(1)) < HSTS_SHORT_SECONDS:
+            issues.append(
+                f"The Strict-Transport-Security max-age is {int(found.group(1))} seconds, under 180 days"
+                + (" (0 turns the protection off)." if int(found.group(1)) == 0 else ".")
+            )
+    referrer = headers.get("referrer-policy", [])
+    if referrer and "unsafe-url" in referrer[0].lower():
+        issues.append("The Referrer-Policy is unsafe-url, which sends the full address to other sites.")
+    return issues
+
+
+def _header_policy_rule(ctx: RuleContext) -> list[RuleDraft]:
+    if not _passive(ctx, "header_quality"):
+        return []
+    drafts = []
+    for (host, scheme, port), views in _group(ctx.of("http_metadata"), _web_key).items():
+        if scheme != "https":
+            continue
+        found: dict[str, None] = {}
+        evidence = []
+        for view in views:
+            status = view.payload.http_status
+            if status is None or not 200 <= status <= 399:
+                continue
+            issues = _header_policy_issues(_headers(view))
+            if issues:
+                evidence.append(view)
+                found.update(dict.fromkeys(issues))
+        if not found:
+            continue
+        ids = tuple(v.id for v in evidence)
+        drafts.append(
+            _draft(
+                rule_id="R-HDR-02",
+                rule_version=1,
+                vulnerability_class=VulnClass.WEAK_HEADER_POLICY,
+                title=f"Weak security header policy on {host}:{port}",
+                confidence=0.6,
+                evidence=ids,
+                cwe_candidates=_cwe(693),
+                conditions=tuple(found),
+                assessment=Assessment.CONDITIONAL,
+                preconditions=(
+                    "Another flaw exists (for example a way to inject a script) that the stronger policy would have contained.",
+                ),
+                attacker_position="Able to inject content into a page, or on the network path for a first visit.",
+                unknowns=(
+                    "Whether the site has any flaw that a stricter policy would have contained.",
+                    "Whether the policy is permissive on purpose, for scripts from a third party the site needs.",
+                ),
+                basis="Rule R-HDR-02: a security header is present but weak. It removes a layer of defence; it is not a flaw by itself.",
+                specs=(
+                    _read(
+                        ids,
+                        "the recorded headers are as listed",
+                        ("content-security-policy", "strict-transport-security", "referrer-policy"),
+                    ),
+                    _rerequest(evidence[0], "the header is still set as recorded"),
+                    _owner(
+                        ids,
+                        "Is the permissive setting intended, and which scripts does the site need it for?",
+                        "the policy is weaker than needed",
+                    ),
+                ),
+                decision_guide=_guide(
+                    "The policy is weaker than the site needs and nothing requires it.",
+                    "The site needs the permissive setting for a reason the owner can state.",
+                ),
+                remediation="Tighten the policy: use nonces or hashes instead of 'unsafe-inline', drop 'unsafe-eval', and set a max-age of a year.",
+                severity=SeverityValue.LOW,
+                severity_basis="A weak policy removes a defence in depth; impact needs another flaw.",
+                facts=(),
+            )
+        )
+    return drafts
+
+
+# ------------------------------------------------------------------------------------------------ R-API-02 ----
+_BRACES = re.compile(r"\{[^{}/]*\}")
+_DOCUMENTED = re.compile(r"(GET|HEAD) (/[A-Za-z0-9_./{}~:-]{0,150})")
+_PATH_FACT = re.compile(r"(?:GET|HEAD) /[A-Za-z0-9_./{}~:-]{0,150}")
+
+
+def _template(path: str) -> str:
+    """A path with each `{name}` as `{}` and no trailing slash, so `{id}` and `{project_id}` are the same place."""
+    return _BRACES.sub("{}", path).rstrip("/") or "/"
+
+
+def _spec_drift_rule(ctx: RuleContext) -> list[RuleDraft]:
+    if not _passive(ctx, "spec_drift"):
+        return []
+    drafts = []
+    for view in ctx.of("api_spec"):
+        parsed = _parsed(view)
+        api = next((a for a in ctx.scope.api_targets if a.id == view.payload.api_target_id), None)
+        if parsed is None or api is None or not isinstance(parsed.get("operations"), list):
+            continue
+        operations = [o for o in parsed["operations"] if isinstance(o, str)]
+        complete = len(operations) == parsed.get("operation_count")
+        documented_reads = {m.group(0): _template(m.group(2)) for o in operations if (m := _DOCUMENTED.fullmatch(o))}
+        documented_any = {_template(o.split(" ", 1)[1]) for o in operations if " " in o}
+        covered: set[str] = set()
+        for endpoint in api.endpoints:
+            covered |= {_template(endpoint.path), _template(api.base_path + endpoint.path)}
+        not_in_scope = [text for text, path in documented_reads.items() if path not in covered]
+        not_documented = []
+        if complete:
+            for endpoint in api.endpoints:
+                forms = {_template(endpoint.path), _template(api.base_path + endpoint.path)}
+                if not forms & documented_any:
+                    not_documented.append(endpoint.id)
+        if not not_in_scope and not not_documented:
+            continue
+        conditions = []
+        if not_in_scope:
+            n = len(not_in_scope)
+            conditions.append(
+                f"{n} read {_plural(n, 'operation is', 'operations are')} documented in the API description but not listed in the scope."
+            )
+        if not_documented:
+            n = len(not_documented)
+            conditions.append(
+                f"{n} listed {_plural(n, 'endpoint is', 'endpoints are')} missing from the API description."
+            )
+        facts = tuple(
+            dict.fromkeys(f for text in not_in_scope if (f := _fact("documented, not in scope", text, _PATH_FACT)))
+        )[:MAX_FACTS]
+        drafts.append(
+            _draft(
+                rule_id="R-API-02",
+                rule_version=1,
+                vulnerability_class=VulnClass.API_INVENTORY_DRIFT,
+                title=f"API description and scope disagree for {view.payload.api_target_id}",
+                confidence=0.5,
+                evidence=(view.id,),
+                cwe_candidates=(),
+                conditions=tuple(conditions),
+                assessment=Assessment.NOT_ASSESSED,
+                preconditions=(
+                    "A documented endpoint exists that nobody has reviewed for access control, or the description is out of date.",
+                ),
+                attacker_position="Anyone who can read the API description.",
+                unknowns=(
+                    "Whether the documented endpoints exist and answer: nothing outside the scope was requested.",
+                    "Whether the description or the scope is the one that is out of date.",
+                ),
+                basis="Rule R-API-02: the API description and the endpoints the scope lists differ. This is an inventory question, not a flaw.",
+                specs=(
+                    _read((view.id,), "the recorded operations are as listed", ("operations",), facts[:3]),
+                    _owner(
+                        (view.id,),
+                        "Are the documented endpoints in use, and has each been reviewed for access control?",
+                        "the inventory is incomplete",
+                    ),
+                ),
+                decision_guide=_guide(
+                    "Documented endpoints exist that have not been reviewed, or the description is out of date.",
+                    "The difference is intended and every endpoint is known.",
+                ),
+                remediation="Keep one reviewed inventory: list every endpoint the API serves, and retire or document the rest.",
+                severity=SeverityValue.INFO,
+                severity_basis="An inventory difference. Nothing was requested beyond the scope.",
+                facts=facts,
+            )
+        )
+    return drafts
+
+
 # ---------------------------------------------------------------------------------------------- R-AI-01..04 ----
 def _probes(ctx: RuleContext, category: str) -> list[ObservationView]:
     return [v for v in ctx.of("ai_probe") if v.payload.category == category]
@@ -1017,6 +1327,9 @@ RULES: tuple[Rule, ...] = (
     _rule("R-API-01", VulnClass.EXPOSED_API_DOCUMENTATION, _api_rule),
     _rule("R-CORS-01", VulnClass.PERMISSIVE_CORS, _cors_rule),
     _rule("R-DNS-01", VulnClass.DNS_EXTERNAL_REFERENCE, _dns_rule),
+    _rule("R-COOKIE-01", VulnClass.INSECURE_COOKIE, _cookie_rule),
+    _rule("R-HDR-02", VulnClass.WEAK_HEADER_POLICY, _header_policy_rule),
+    _rule("R-API-02", VulnClass.API_INVENTORY_DRIFT, _spec_drift_rule),
     _rule("R-AI-01", VulnClass.AI_PROMPT_INJECTION_SUSCEPTIBILITY, _CANARY_RULES[0]),
     _rule("R-AI-02", VulnClass.AI_SYSTEM_PROMPT_LEAKAGE, _CANARY_RULES[1]),
     _rule("R-AI-03", VulnClass.AI_SENSITIVE_INFORMATION_DISCLOSURE, _CANARY_RULES[2]),

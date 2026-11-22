@@ -1,0 +1,35 @@
+pack: passive
+http:
+  https://weak.example.invalid:443/:
+    status: 200
+    headers:
+      content-type:
+      - text/html
+      set-cookie:
+      - sid=SYNTHETIC-COOKIE-0001; Path=/; HttpOnly
+      - theme=dark; Path=/; Secure; HttpOnly; SameSite=Lax
+      content-security-policy:
+      - default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'
+      strict-transport-security:
+      - max-age=3600
+      referrer-policy:
+      - unsafe-url
+    body: <html></html>
+  https://weak.example.invalid:443/app:
+    status: 200
+    headers:
+      content-type:
+      - text/html
+      set-cookie:
+      - pref=1; Path=/; Secure; SameSite=None
+      content-security-policy:
+      - script-src 'self' 'nonce-abc123' 'unsafe-inline'
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+    body: ''
+  https://weak.example.invalid:443/plain:
+    status: 200
+    headers:
+      content-type:
+      - text/plain
+    body: ok

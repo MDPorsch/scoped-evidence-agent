@@ -58,7 +58,7 @@ milestone. Residual risks are listed, not hidden.
 * **SE-23 A parsed document keeps only a few named facts, and the longest lists are cut to fit.** A very large `robots.txt` or OpenAPI
   document is summarised (first entries kept, last dropped) so it is collected rather than refused; the stored artifact keeps the
   redacted text up to the scope's byte limit.
-* **SE-24 No draft is not no flaw.** The version-1 catalogue has twelve rules (`docs/correlator.md`). It does not cover an expired
+* **SE-24 No draft is not no flaw.** The version-1 catalogue has fifteen rules (`docs/correlator.md`). It does not cover an expired
   `security.txt`, cookie attributes (cookie values are redacted whole), cache headers, CSP quality, mixed content, certificate chain
   validity beyond the flags listed, authorization flaws, or anything that needs a request the scope does not list. A rule can also fire
   on something harmless: every draft is for a person to read.
@@ -123,3 +123,9 @@ milestone. Residual risks are listed, not hidden.
   is the real ceiling.
 * **SE-36 One model family, no fallback between providers.** 0.x supports Claude through the official SDK and an offline stand-in. If the
   provider is down the drafts keep the rule's text and the call is recorded as `unavailable`.
+* **SE-48 The passive checks judge only what was collected.** `cookie_flags` never sees a cookie's value, so it cannot say whether a cookie holds
+  a session: every draft asks the owner. `header_quality` reads a header as recorded for the responses collected, not for every page, and its
+  180-day HSTS threshold and its reading of a Content-Security-Policy are judgments (a nonce, a hash or `'strict-dynamic'` makes `'unsafe-inline'`
+  harmless in current browsers, and the check says nothing about a policy that is absent: `R-HDR-01` does). A missing `Referrer-Policy` is not
+  flagged, because current browsers default to a protective policy. `spec_drift` compares paths only (not parameters or methods beyond GET and
+  HEAD), and says nothing about a documented endpoint when the description's list was cut short. None of them sends a request.

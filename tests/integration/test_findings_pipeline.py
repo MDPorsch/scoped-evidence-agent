@@ -19,8 +19,10 @@ from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, _alembic_config, open_database, upgrade_database
 from tests.support import (
     AI_PACK,
+    API_DRIFT_PACK,
     NOW,
     PACKS,
+    PASSIVE_PACK,
     dump,
     everything_stored,
     finding_golden,
@@ -37,7 +39,7 @@ from tests.support import (
 
 pytestmark = pytest.mark.milestone("M3")
 
-ALL = [*PACKS, AI_PACK]
+ALL = [*PACKS, AI_PACK, PASSIVE_PACK, API_DRIFT_PACK]
 
 
 @pytest.fixture

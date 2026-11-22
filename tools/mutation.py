@@ -830,7 +830,7 @@ M.update({
     "findings_decision_guide_coverage_unchecked": [(FND, "        if sorted(g.suggests.value for g in self.decision_guide) != sorted(d.value for d in ReviewDecision):", "        if False:")],
     "findings_step_numbering_unchecked": [(FND, "        if [s.order for s in self.validation_steps] != list(range(1, len(self.validation_steps) + 1)):", "        if False:")],
     "findings_own_severity_may_be_set": [(FND, '    severity: Literal["unknown"]', '    severity: Literal["unknown", "low", "medium", "high", "critical"]')],
-    "findings_rule_id_unchecked": [(FND, '_RULE_ID = re.compile(r"R-[A-Z]{2,5}-[0-9]{2}")', '_RULE_ID = re.compile(r".*")')],
+    "findings_rule_id_unchecked": [(FND, '_RULE_ID = re.compile(r"R-[A-Z]{2,8}-[0-9]{2}")', '_RULE_ID = re.compile(r".*")')],
     # ---- the step checker -----------------------------------------------------------------------------
     "steps_action_limit_raised": [(STP, "MAX_ACTION = 400", "MAX_ACTION = 4000")],
     "steps_action_limit_off_by_one": [(STP, "    if len(action) > MAX_ACTION:", "    if len(action) >= MAX_ACTION:")],
@@ -1750,6 +1750,82 @@ M.update({
     "live_host_cap_back_to_ten": [(SCP, "MAX_LIVE_HOSTS = 20", "MAX_LIVE_HOSTS = 10")],
     "live_host_cap_one_more": [(SCP, "MAX_LIVE_HOSTS = 20", "MAX_LIVE_HOSTS = 21")],
     "live_host_cap_refuses_the_limit": [(SCP, "if len(hosts) > MAX_LIVE_HOSTS:", "if len(hosts) >= MAX_LIVE_HOSTS:")],
+})  # fmt: skip
+
+# ================================================ M7 stage 2a: the passive checks (D-E89 to D-E94) ===============================
+M.update({
+    # ---- the scope's checks block --------------------------------------------------------------------------------------------
+    "chk_repeat_allowed": [after(SCP, "class ChecksConfig(_Model):", "        if len(set(value)) != len(value):", "        if False:")],
+    "chk_empty_list_allowed": [(SCP, "passive: Annotated[list[PassiveCheck], Field(min_length=1, max_length=3)]", "passive: Annotated[list[PassiveCheck], Field(min_length=0, max_length=3)]")],
+    "chk_block_not_in_the_hash": [(SCP, "    if config.checks is not None:\n        result[\"checks\"]", "    if False:\n        result[\"checks\"]")],
+    "chk_hash_ignores_the_order": [(SCP, "{\"passive\": list(config.checks.passive)}", "{\"passive\": sorted(config.checks.passive)}")],
+    "chk_web_check_without_http_allowed": [(SCP, "if name in (\"cookie_flags\", \"header_quality\") and \"http_metadata\" not in allowed:", "if False:")],
+    "chk_spec_drift_without_an_api_spec": [(SCP, "if name == \"spec_drift\" and not any(\"api_spec\" in api.operations for api in self.api_targets):", "if False:")],
+    "chk_block_never_checked": [(SCP, "        self._check_checks()\n", "")],
+    "chk_cli_validate_silent": [(CLI, "    if config.checks is not None:\n        typer.echo(_checks_line(config.checks.passive))", "    if False:\n        typer.echo(_checks_line(config.checks.passive))")],
+    "chk_cli_grant_silent": [(CLI, "            if loaded.config.checks is not None:\n                typer.echo(_checks_line(loaded.config.checks.passive))", "            if False:\n                typer.echo(_checks_line(loaded.config.checks.passive))")],
+    # ---- reading a cookie ------------------------------------------------------------------------------------------------------
+    "cookie_secure_never_seen": [(PRS, "            if key == \"secure\":\n                secure = True", "            if key == \"secure\":\n                secure = False")],
+    "cookie_httponly_never_seen": [(PRS, "            elif key == \"httponly\":\n                http_only = True", "            elif key == \"httponly\":\n                http_only = False")],
+    "cookie_samesite_never_read": [(PRS, "same_site = setting if setting in (\"strict\", \"lax\", \"none\") else \"other\"", "same_site = \"missing\"")],
+    "cookie_samesite_odd_value_is_missing": [(PRS, "setting in (\"strict\", \"lax\", \"none\") else \"other\"", "setting in (\"strict\", \"lax\", \"none\") else \"missing\"")],
+    "cookie_attribute_case_matters": [(PRS, "key, setting = key.strip().lower(), setting.strip().lower()", "key, setting = key.strip(), setting.strip().lower()")],
+    "cookie_name_not_checked": [(PRS, "\"name\": name if _COOKIE_NAME.fullmatch(name) else \"?\",", "\"name\": name,")],
+    "cookie_value_kept": [(PRS, "                \"secure\": secure,\n", "                \"secure\": secure,\n                \"value\": _value,\n")],
+    "cookie_non_cookie_kept": [(PRS, "        if not equals:\n            continue", "        if False:\n            continue")],
+    "cookie_cap_removed": [(PRS, "        if len(cookies) == MAX_COOKIES:\n            break\n", "")],
+    "cookie_cap_seventeen": [(PRS, "MAX_COOKIES = 16", "MAX_COOKIES = 17")],
+    "cookie_schema_cap_seventeen": [(SCH, "cookies: Annotated[list[CookieFlags], Field(max_length=16)] = []", "cookies: Annotated[list[CookieFlags], Field(max_length=17)] = []")],
+    "cookie_schema_name_any": [(SCH, "name: Annotated[str, Field(pattern=r\"^(?:[A-Za-z0-9_.-]{1,64}|\\?)$\")]", "name: Annotated[str, Field(pattern=r\"^.*$\")]")],
+    "cookie_adapter_records_none": [(OFF, "\"cookies\": list(ex.cookies),", "\"cookies\": [],")],
+    "cookie_adapter_reads_the_wrong_header": [(OFF, "incoming.get(\"set-cookie\", [])", "incoming.get(\"cookie\", [])")],
+    # ---- the documented operations of a spec ---------------------------------------------------------------------------------------
+    "spec_path_not_filtered": [(PRS, "if isinstance(path, str) and _SPEC_PATH.fullmatch(path) and len(listed) < MAX_LISTED_OPERATIONS:", "if isinstance(path, str) and len(listed) < MAX_LISTED_OPERATIONS:")],
+    "spec_listing_uncapped": [(PRS, "_SPEC_PATH.fullmatch(path) and len(listed) < MAX_LISTED_OPERATIONS:", "_SPEC_PATH.fullmatch(path):")],
+    "spec_cap_two_hundred_and_one": [(PRS, "MAX_LISTED_OPERATIONS = 200", "MAX_LISTED_OPERATIONS = 201")],
+    "spec_verb_lower_case": [(PRS, "listed.append(f\"{verb.upper()} {path}\")", "listed.append(f\"{verb} {path}\")")],
+    "spec_operations_not_returned": [(PRS, "\"operations_without_security\": unsecured, \"operations\": listed}", "\"operations_without_security\": unsecured, \"operations\": []}")],
+    "spec_path_length_unbounded": [(PRS, "_SPEC_PATH = re.compile(r\"/[A-Za-z0-9_./{}~:-]{0,150}\")", "_SPEC_PATH = re.compile(r\"/[A-Za-z0-9_./{}~:-]*\")")],
+    # ---- the rules: gates -------------------------------------------------------------------------------------------------------------
+    "rule_cookie_ignores_the_scope": [(RUL, "    if not _passive(ctx, \"cookie_flags\"):\n        return []", "    if False:\n        return []")],
+    "rule_header_policy_ignores_the_scope": [(RUL, "    if not _passive(ctx, \"header_quality\"):\n        return []", "    if False:\n        return []")],
+    "rule_drift_ignores_the_scope": [(RUL, "    if not _passive(ctx, \"spec_drift\"):\n        return []", "    if False:\n        return []")],
+    "rule_any_check_switches_on_all": [(RUL, "return ctx.scope.checks is not None and name in ctx.scope.checks.passive", "return ctx.scope.checks is not None")],
+    # ---- R-COOKIE-01 --------------------------------------------------------------------------------------------------------------------
+    "rule_cookie_secure_asked_of_http": [(RUL, "if view.payload.scheme == \"https\" and not cookie.secure:", "if not cookie.secure:")],
+    "rule_cookie_httponly_ignored": [(RUL, "                if not cookie.http_only:\n", "                if False:\n")],
+    "rule_cookie_samesite_ignored": [(RUL, "                if cookie.same_site == \"missing\":\n", "                if False:\n")],
+    "rule_cookie_samesite_only_lax_counts": [(RUL, "                if cookie.same_site == \"missing\":\n", "                if cookie.same_site != \"lax\":\n")],
+    "rule_cookie_cites_every_response": [(RUL, "            if weak:\n                evidence.append(view.id)", "            evidence.append(view.id)")],
+    "rule_cookie_one_wording_for_all": [(RUL, "_plural(n, 'cookie has', 'cookies have')", "'cookie has'")],
+    # ---- R-HDR-02 ------------------------------------------------------------------------------------------------------------------------
+    "rule_csp_eval_ignored": [(RUL, "        if \"'unsafe-eval'\" in sources:", "        if False:")],
+    "rule_csp_inline_ignores_a_nonce_or_hash": [(RUL, "            and not _NONCE_OR_HASH.search(\" \".join(sources))\n", "")],
+    "rule_csp_inline_ignores_strict_dynamic": [(RUL, "            and \"'strict-dynamic'\" not in sources\n", "")],
+    "rule_csp_wildcard_ignored": [(RUL, "        if \"*\" in sources:", "        if False:")],
+    "rule_csp_no_default_src_fallback": [(RUL, "directives.get(\"script-src\", directives.get(\"default-src\"))", "directives.get(\"script-src\")")],
+    "rule_csp_default_src_beats_script_src": [(RUL, "directives.get(\"script-src\", directives.get(\"default-src\"))", "directives.get(\"default-src\", directives.get(\"script-src\"))")],
+    "rule_hsts_limit_on_the_limit": [(RUL, "elif int(found.group(1)) < HSTS_SHORT_SECONDS:", "elif int(found.group(1)) <= HSTS_SHORT_SECONDS:")],
+    "rule_hsts_limit_a_year": [(RUL, "HSTS_SHORT_SECONDS = 15_552_000", "HSTS_SHORT_SECONDS = 31_536_000")],
+    "rule_hsts_without_max_age_ignored": [(RUL, "        if found is None:\n            issues.append(\"The Strict-Transport-Security header has no max-age.\")", "        if found is None:\n            pass")],
+    "rule_referrer_ignored": [(RUL, "    if referrer and \"unsafe-url\" in referrer[0].lower():", "    if False:")],
+    "rule_header_policy_judges_http": [(RUL, "        if scheme != \"https\":\n            continue", "        if False:\n            continue")],
+    "rule_header_policy_judges_errors": [(RUL, "            if status is None or not 200 <= status <= 399:", "            if status is None or not 200 <= status <= 599:")],
+    "rule_header_policy_status_floor": [(RUL, "            if status is None or not 200 <= status <= 399:", "            if status is None or not 100 <= status <= 399:")],
+    # ---- R-API-02 ------------------------------------------------------------------------------------------------------------------------------
+    "rule_drift_head_not_read": [(RUL, "_DOCUMENTED = re.compile(r\"(GET|HEAD) (/[A-Za-z0-9_./{}~:-]{0,150})\")", "_DOCUMENTED = re.compile(r\"(GET) (/[A-Za-z0-9_./{}~:-]{0,150})\")")],
+    "rule_drift_changes_of_state_flagged": [(RUL, "_DOCUMENTED = re.compile(r\"(GET|HEAD) (/[A-Za-z0-9_./{}~:-]{0,150})\")", "_DOCUMENTED = re.compile(r\"(GET|HEAD|POST|PUT|PATCH|DELETE) (/[A-Za-z0-9_./{}~:-]{0,150})\")")],
+    "rule_drift_incomplete_listing_trusted": [(RUL, "        complete = len(operations) == parsed.get(\"operation_count\")", "        complete = True")],
+    "rule_drift_base_path_ignored": [(RUL, "            covered |= {_template(endpoint.path), _template(api.base_path + endpoint.path)}", "            covered |= {_template(endpoint.path)}")],
+    "rule_drift_placeholders_kept": [(RUL, "return _BRACES.sub(\"{}\", path).rstrip(\"/\") or \"/\"", "return path.rstrip(\"/\") or \"/\"")],
+    "rule_drift_trailing_slash_kept": [(RUL, "return _BRACES.sub(\"{}\", path).rstrip(\"/\") or \"/\"", "return _BRACES.sub(\"{}\", path) or \"/\"")],
+    "rule_drift_undocumented_never_found": [(RUL, "                if not forms & documented_any:", "                if False:")],
+    "rule_drift_any_target": [(RUL, "next((a for a in ctx.scope.api_targets if a.id == view.payload.api_target_id), None)", "next(iter(ctx.scope.api_targets), None)")],
+    # ---- the rule id and the catalogue mapping ------------------------------------------------------------------------------------------------
+    "rule_id_five_letters": [(FND, "R-[A-Z]{2,8}-[0-9]{2}", "R-[A-Z]{2,5}-[0-9]{2}")],
+    "rule_id_nine_letters": [(FND, "R-[A-Z]{2,8}-[0-9]{2}", "R-[A-Z]{2,9}-[0-9]{2}")],
+    "bench_data_cookie_session_remapped": [(BYM, "      category: A07\n      note: if the cookie holds a session", "      category: A06\n      note: if the cookie holds a session")],
+    "bench_data_drift_remapped": [(BYM, "  R-API-02:\n    - benchmark: owasp-api-top10\n      category: API9\n", "  R-API-02:\n    - benchmark: owasp-api-top10\n      category: API1\n")],
 })  # fmt: skip
 
 IGNORE = shutil.ignore_patterns(

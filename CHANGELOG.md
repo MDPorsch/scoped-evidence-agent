@@ -4,6 +4,13 @@ Format: Keep a Changelog; versions follow SemVer.
 
 ## [0.0.1] - unreleased
 
+### Added (M7 stage 2a: passive checks)
+- An optional `checks: {passive: [...]}` block in a scope (`docs/scope-format.md`): `cookie_flags` (R-COOKIE-01), `header_quality` (R-HDR-02) and
+  `spec_drift` (R-API-02). They read what the run already collected and send nothing new; a scope without the block behaves as before. The block
+  joins the scope hash only when present and is printed by `scope validate` and before an approval.
+- `http_metadata` observations now record each cookie's name and Secure, HttpOnly and SameSite flags (never the value); the API spec summary lists
+  the documented operations. Rule ids may now have up to eight letters. Fifteen rules in all (`docs/correlator.md`). Decisions D-E89 to D-E94.
+
 ### Added (M7 stage 1: OWASP benchmark catalogue; live hosts raised to 20)
 - `benchmarks status` and `benchmarks rules`; the closest OWASP category beside every rule in `findings show` and in both report formats, with a
   `Benchmarks` section listing the editions and check dates used. Editions: OWASP Top 10 2025, API Security Top 10 2023, LLM Top 10 2026

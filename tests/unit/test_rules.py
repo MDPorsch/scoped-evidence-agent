@@ -155,10 +155,10 @@ def only(drafts: list[RuleDraft]) -> RuleDraft:
 
 
 # ----------------------------------------------------------------------------------------------- the catalogue ----
-def test_the_catalogue_is_the_twelve_documented_rules_in_order() -> None:
+def test_the_catalogue_is_the_fifteen_documented_rules_in_order() -> None:
     assert [r.id for r in RULES] == [
         "R-TLS-01", "R-HDR-01", "R-INFO-01", "R-INFO-02", "R-REDIR-01", "R-API-01", "R-CORS-01", "R-DNS-01",
-        "R-AI-01", "R-AI-02", "R-AI-03", "R-AI-04",
+        "R-COOKIE-01", "R-HDR-02", "R-API-02", "R-AI-01", "R-AI-02", "R-AI-03", "R-AI-04",
     ]  # fmt: skip
     assert all(r.version == 1 for r in RULES)
     assert {r.vulnerability_class for r in RULES} <= set(VulnClass)
