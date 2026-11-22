@@ -13,7 +13,7 @@ and kept up to date. That changes what the tool sends, so it is built **in stage
 | D-E85 | **AI probe texts are drafted by the assistant and reviewed by the owner, one by one, before any goes live.** They stay fixed and benign (canary markers, not real attacks). |
 | D-E86 | **Live mode names at most 20 hosts** (was 10). Done in stage 1. |
 | D-E87 | **Benchmarks are kept current by reviewed updates plus a scheduled check** that looks for new OWASP releases and opens a pull request for review. Nothing downloads at run time (`docs/benchmarks.md`). |
-| D-E88 | **The catalogue design** (pending your approval): a data file of editions, categories and a mapping per rule; labels derived when shown, never stored in a finding; a report lists the editions used; a mapping is the closest category; gaps are shown, not hidden. |
+| D-E88 | **The catalogue design** (approved 2026-11-22, with the mapping as written): a data file of editions, categories and a mapping per rule; labels derived when shown, never stored in a finding; a report lists the editions used; a mapping is the closest category; gaps are shown, not hidden. |
 
 ## The stages
 
