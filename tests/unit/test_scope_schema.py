@@ -294,10 +294,14 @@ def test_approval_references_follow_the_pattern(value: str) -> None:
     refused(data, ErrorCode.SCOPE_003)
 
 
-def test_live_mode_parses_but_is_still_just_a_scope() -> None:
+def test_live_mode_parses_with_its_authorization_and_is_refused_without() -> None:
+    from tests.unit.test_scope_live import live_dict  # noqa: PLC0415
+
+    assert accepted(live_dict()).config.mode == "live"
     data = scope_dict()
     data["mode"] = "live"
-    assert accepted(data).config.mode == "live"
+    with pytest.raises(ScopeError):
+        accepted(data)
 
 
 def test_an_unknown_mode_is_refused() -> None:
@@ -397,7 +401,9 @@ def test_formatting_case_defaults_and_offsets_do_not_change_the_hash() -> None:
         lambda d: d.update(owner_approval_ref="someone-else"),
         lambda d: d.update(allowed_operations=["dns_metadata", "http_metadata"]),
         lambda d: d.update(expires_at="2026-12-30T23:59:00Z"),
-        lambda d: d.update(mode="live"),
+        lambda d: d.update(
+            mode="live", authorization={"engagement": "ACME-2026-114", "not_after": "2026-12-04T23:59:59Z"}
+        ),
         lambda d: d["allowed_targets"][0]["allowed_paths"].reverse(),
     ],
 )

@@ -37,6 +37,7 @@ from tests.support import (
     scope_dict,
     scope_text,
 )
+from tests.unit.test_scope_live import live_dict
 
 pytestmark = pytest.mark.milestone("M2")
 
@@ -366,8 +367,7 @@ def test_cancelling_mid_run_keeps_the_audit_trail_and_a_fresh_run_completes(env:
 
 # --------------------------------------------------------------------------------- refusals first ----
 def test_a_live_scope_is_refused_before_anything_is_stored(env: Any) -> None:
-    data = scope_dict("healthy")
-    data["mode"] = "live"
+    data = live_dict("healthy")
     db, _, _ = env
     with pytest.raises(PolicyError) as caught:
         run(env, "healthy", loaded=parse_scope(dump(data), now=NOW))

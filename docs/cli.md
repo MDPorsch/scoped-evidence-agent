@@ -23,9 +23,13 @@
 | `ai disable` | Turn it off. The file and every saved wording stay. | |
 | `ai test` | One fixed sample sentence through the configured model, to check the key, the model and the checks. Nothing is stored. | Prints the status and a sanitized detail on failure; never a key or a reply that failed. |
 | `findings reword RUN [--finding ID]` | Ask the model to reword the sentences of a run's drafts that have no wording yet. The rule's text stays and is shown first; a wording is stored beside it, labelled as not verified. | The only command that calls a model besides `ai test`. Needs AI on and its key; a budget per run; every answer is checked item by item (`docs/ai-adapter.md`). |
+| `approvals grant --scope FILE --until TIME` | Record that live runs of exactly this scope are allowed until a UTC time (`2026-12-01T00:00:00Z`). You type the first eight characters of the scope hash to confirm. | Bound to the scope hash (editing the scope invalidates it); the end may not pass the scope's expiry or the authorization's `not_after`; append-only; audited. |
+| `approvals list` / `approvals revoke ID --reason TEXT` | Every approval and whether it is valid, expired or revoked / end one. | A revoked approval is kept and never valid again. |
+| `live run --scope FILE --approval-id ID --image REF --ack-authorization [--credential NAME=ENVVAR]...` | Collect from the declared hosts inside an isolated container that proves its isolation first. **The only command that can leave this machine** (besides `ai test` and `findings reword` with a model on). | Needs a live scope, a window that is open, `--ack-authorization` on every run, a valid approval for this exact scope, an image pinned by digest, and every credential promised. `run` never does any of this (D-E37). |
 | `artifacts purge --before DATE` | Retention cleanup. | Only recorded sha256 files under the artifact root; symlinks refused; writes a receipt. |
 | `audit verify RUN` | Recomputes the audit hash chain of one run. | Read-only; exit `1` on a broken chain. |
 
+M6 adds live remote collection: `approvals` and `live run` (`docs/remote-live-design.md`); `run` refuses a live scope and `run --live` is refused.
 M5 adds API-target scopes: `scope validate` and `run` handle `api_targets` (`docs/api-targets.md`), and `db upgrade` moves a database to revision `0004`.
 
 M1 delivers `--version`, `db upgrade`, `scope init`, `scope validate`, `runs list` and `audit verify`. M2 adds `run` and
@@ -38,8 +42,8 @@ ends with one line saying so.
 | Code | Meaning |
 |---|---|
 | `0` | The collection was complete and no draft was made. That is not proof that nothing is wrong: only what the scope lists was collected, and only the rules in `docs/correlator.md` were applied. |
-| `1` | Validation or policy failure: bad scope, expired scope, refused mode, changed scope file, broken audit chain. |
-| `2` | The run could not do its job: infrastructure failure, or any operation that errored, timed out, was refused or ran out of budget, so the collection is **incomplete**. |
+| `1` | Validation or policy failure: bad scope, expired scope, refused mode, changed scope file, broken audit chain; for live mode a refused gate (`LIVE-002`: authorization, acknowledgement, approval, window or credential) or an image that is not pinned (`LIVE-001`). |
+| `2` | The run could not do its job (live mode: no container runtime `LIVE-001`, a failed isolation proof `LIVE-003`, a sandbox output that was refused `LIVE-004`): infrastructure failure, or any operation that errored, timed out, was refused or ran out of budget, so the collection is **incomplete**. |
 | `3` | The collection was complete and there are drafts that need human review (`findings list RUN`). |
 
 Incomplete is never `0`. The report states the coverage: planned operations, completed, errored, refused.

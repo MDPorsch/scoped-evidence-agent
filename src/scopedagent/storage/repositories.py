@@ -134,7 +134,13 @@ def register_engagement(session: Session, loaded: LoadedScope, *, now: datetime)
 
 # ------------------------------------------------------------------------------------------ runs ----
 def create_run(
-    session: Session, engagement: Engagement, *, actor: Actor, now: datetime, planned_operations: int | None = None
+    session: Session,
+    engagement: Engagement,
+    *,
+    actor: Actor,
+    now: datetime,
+    planned_operations: int | None = None,
+    live: bool = False,
 ) -> Run:
     if actor.type is not ActorType.HUMAN:
         _deny(
@@ -148,8 +154,8 @@ def create_run(
         )
     check_not_expired(engagement.expires_at, now)
     scope = json.loads(engagement.scope_json)
-    if scope["mode"] != "offline":
-        raise PolicyError(ErrorCode.POLICY_001, "live mode is not available in this version (D-E01)")
+    if scope["mode"] != ("live" if live else "offline"):
+        raise PolicyError(ErrorCode.POLICY_001, "the scope's mode is not the mode of this command (D-E37)")
     run = Run(
         id=new_id(),
         engagement_id=engagement.id,

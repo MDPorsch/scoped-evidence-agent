@@ -33,6 +33,9 @@ EXPECTED_TABLES = {
     "finding_reviews",
     "model_calls",
     "finding_wordings",
+    "approvals",
+    "approval_revocations",
+    "live_runs",
     "audit_events",
     "alembic_version",
 }
@@ -607,8 +610,8 @@ def test_the_migrated_check_constraints_are_exactly_the_models(data_dir: DataDir
         assert from_migration == from_models, table
         total += len(from_migration)
     # engagements 2, targets 5, runs 7, observations 5, artifacts 3, finding_drafts 4, finding_details 1, finding_reviews 4,
-    # model_calls 4, finding_wordings 4, audit_events 4: the parser found them all
-    assert total == 43
+    # model_calls 4, finding_wordings 4, approvals 3, approval_revocations 2, live_runs 1, audit_events 4: the parser found them all
+    assert total == 49
 
 
 def test_the_migrated_unique_constraints_and_foreign_keys_are_exactly_the_models(
@@ -658,6 +661,12 @@ def test_the_triggers_exist_and_there_are_no_others(db: Any) -> None:
         "finding_reviews_no_delete",
         "model_calls_no_update",
         "model_calls_no_delete",
+        "approvals_no_update",
+        "approvals_no_delete",
+        "approval_revocations_no_update",
+        "approval_revocations_no_delete",
+        "live_runs_no_update",
+        "live_runs_no_delete",
         "finding_wordings_no_update",
         "finding_wordings_no_delete",
     }

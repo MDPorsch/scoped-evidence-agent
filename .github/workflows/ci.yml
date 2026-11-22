@@ -36,6 +36,24 @@ jobs:
       - run: uv run mypy
       - run: uv run pytest -q --cov=scopedagent --cov-report=term-missing --cov-fail-under=90
 
+  container:
+    name: live isolation (real container)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.9"
+          enable-cache: true
+      - run: uv sync
+      - name: Prove the container's isolation on a real Linux network namespace (loopback and documentation addresses only)
+        run: uv run pytest -q -m container -p no:cacheprovider
+
   supply-chain:
     name: dependency audit and secret scan
     runs-on: ubuntu-24.04

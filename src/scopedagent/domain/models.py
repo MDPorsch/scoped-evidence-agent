@@ -386,7 +386,62 @@ class AuditEvent(Base):
     entry_hash: Mapped[str] = mapped_column(String)
 
 
+class Approval(Base):
+    """A human's pause before a live run (D-E41): bound to one scope hash, it expires, and it can only be revoked."""
+
+    __tablename__ = "approvals"
+    __table_args__ = (
+        CheckConstraint("length(scope_sha256) = 64", name="ck_approvals_scope_sha256"),
+        CheckConstraint("length(granted_by) BETWEEN 1 AND 128", name="ck_approvals_granted_by"),
+        CheckConstraint("expires_at > granted_at", name="ck_approvals_window"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    scope_sha256: Mapped[str] = mapped_column(String)
+    engagement: Mapped[str] = mapped_column(String)
+    granted_by: Mapped[str] = mapped_column(String)
+    granted_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class ApprovalRevocation(Base):
+    """The end of an approval, written once. An approval row itself is never changed."""
+
+    __tablename__ = "approval_revocations"
+    __table_args__ = (
+        ForeignKeyConstraint(["approval_id"], ["approvals.id"], name="fk_revocations_approval"),
+        CheckConstraint("length(revoked_by) BETWEEN 1 AND 128", name="ck_revocations_revoked_by"),
+        CheckConstraint("length(reason) BETWEEN 1 AND 500", name="ck_revocations_reason"),
+    )
+
+    approval_id: Mapped[str] = mapped_column(String, primary_key=True)
+    revoked_by: Mapped[str] = mapped_column(String)
+    revoked_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    reason: Mapped[str] = mapped_column(String)
+
+
+class LiveRun(Base):
+    """What a live run was done under: the approval, engagement, image, isolation proof and the hosts as resolved."""
+
+    __tablename__ = "live_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id"], ["runs.id"], name="fk_live_runs_run"),
+        ForeignKeyConstraint(["approval_id"], ["approvals.id"], name="fk_live_runs_approval"),
+        CheckConstraint("length(image) BETWEEN 1 AND 300", name="ck_live_runs_image"),
+    )
+
+    run_id: Mapped[str] = mapped_column(String, primary_key=True)
+    approval_id: Mapped[str] = mapped_column(String)
+    engagement: Mapped[str] = mapped_column(String)
+    image: Mapped[str] = mapped_column(String)
+    proof_json: Mapped[str] = mapped_column(Text)
+    resolutions_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
 __all__ = [
+    "Approval",
+    "ApprovalRevocation",
     "Artifact",
     "AuditEvent",
     "Base",
@@ -396,6 +451,7 @@ __all__ = [
     "FindingEvidence",
     "FindingReview",
     "FindingWording",
+    "LiveRun",
     "ModelCall",
     "Observation",
     "Run",

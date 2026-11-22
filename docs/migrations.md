@@ -20,6 +20,9 @@ database at a revision this version does not know is refused (`STORE-002`) with 
   then `.1`, `.2`, ... so an older copy is never replaced; mode `0600`) and prints the path. Tests rebuild a database holding the rows
   of two real runs and compare every row and the whole schema before and after. This is the only revision so far that rewrites existing
   records, so it needs the owner's approval before it is merged.
+* Revision `0005` (M6, D-E41) adds the append-only `approvals`, `approval_revocations` and `live_runs` tables (an approval bound to a scope hash,
+  the one row that ends it, and what a live run was done under). It changes no existing table. Tests upgrade a database at `0004` and keep
+  its data.
 * Triggers: `audit_events_no_update` and `audit_events_no_delete` (the audit trail is append-only) and
   `observations_target_in_engagement` (an observation must belong to a target of the run's own engagement).
 * **Forward only.** There is no downgrade: it raises. To go back, restore the database file from a backup made before the upgrade.

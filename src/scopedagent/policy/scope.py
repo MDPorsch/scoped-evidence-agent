@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from scopedagent.errors import ErrorCode, ScopeError
+from scopedagent.live.addresses import validate_networks
 from scopedagent.logs import safe_text
 from scopedagent.policy.probes import PROBE_SETS
 from scopedagent.strictyaml import StrictYamlError, strict_load
@@ -28,6 +29,7 @@ MAX_HOST_INPUT = 512
 MAX_HOST = 253
 MAX_PATH = 256
 MAX_EXPIRY_DAYS = 366
+MAX_LIVE_HOSTS = 10  # D-E45
 
 _HOST_CHARS = re.compile(r"[a-z0-9.-]+")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -648,6 +650,52 @@ class ApiTarget(_Model):
         return spec + reads + options
 
 
+# ---------------------------------------------------------------------------------- live mode (D-E41) ----
+class Authorization(_Model):
+    """What the operator DECLARES: the engagement and the window. The tool enforces the window, not the claim."""
+
+    engagement: str
+    not_before: datetime | None = None
+    not_after: datetime
+
+    @field_validator("engagement")
+    @classmethod
+    def _engagement(cls, value: str) -> str:
+        if not _APPROVAL_REF.fullmatch(value):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_003, "engagement must be 3 to 128 characters of letters, digits and . _ : / # -"
+            )
+        return value
+
+    @field_validator("not_before", "not_after", mode="before")
+    @classmethod
+    def _stamp(cls, value: object) -> datetime | None:
+        return None if value is None else _parse_expiry(value)
+
+    @model_validator(mode="after")
+    def _window(self) -> Authorization:
+        if self.not_before is not None and not self.not_before < self.not_after:
+            raise ScopeValueError(ErrorCode.SCOPE_004, "authorization.not_before must be before not_after")
+        if self.not_before is not None and self.not_after - self.not_before > timedelta(days=MAX_EXPIRY_DAYS):
+            raise ScopeValueError(
+                ErrorCode.SCOPE_004, f"the authorization window may be at most {MAX_EXPIRY_DAYS} days long"
+            )
+        return self
+
+
+class Egress(_Model):
+    allowed_networks: Annotated[list[str], Field(max_length=32)] = []
+    max_requests_per_second: Annotated[int, Field(ge=1, le=10)] = 2
+
+    @field_validator("allowed_networks")
+    @classmethod
+    def _networks(cls, value: list[str]) -> list[str]:
+        try:
+            return validate_networks(value)
+        except ValueError as exc:
+            raise ScopeValueError(ErrorCode.SCOPE_006, str(exc)) from None
+
+
 class ScopeConfig(_Model):
     engagement_id: str
     owner_approval_ref: str
@@ -656,6 +704,8 @@ class ScopeConfig(_Model):
     allowed_targets: Annotated[list[TargetEntry], Field(max_length=20)]
     ai_targets: Annotated[list[AiTarget], Field(max_length=10)] = []
     api_targets: Annotated[list[ApiTarget], Field(max_length=10)] = []
+    authorization: Authorization | None = None
+    egress: Egress | None = None
     allowed_operations: Annotated[list[OperationKind], Field(min_length=1)]
     max_requests: Annotated[int, Field(ge=1, le=500)]
     max_parallelism: Annotated[int, Field(ge=1, le=4)] = 2
@@ -710,6 +760,7 @@ class ScopeConfig(_Model):
         self._check_web_targets()
         self._check_ai_targets()
         self._check_api_targets()
+        self._check_live()
         return self
 
     def _check_web_targets(self) -> None:
@@ -749,6 +800,28 @@ class ScopeConfig(_Model):
         for kind in ("ai_metadata", "ai_probe"):
             if kind in allowed and kind not in used_by_ai:
                 raise ScopeValueError(ErrorCode.SCOPE_009, f"{kind} is allowed but no AI target uses it")
+
+    def _check_live(self) -> None:
+        """Live needs a declared authorization and a few listed hosts; an offline scope may not carry either block."""
+        if self.mode == "live":
+            if self.authorization is None:
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_009, "mode live needs an authorization block (docs/remote-live-design.md)"
+                )
+            hosts = (
+                {e.host for e in self.allowed_targets}
+                | {a.host for a in self.ai_targets}
+                | {a.host for a in self.api_targets}
+            )
+            if len(hosts) > MAX_LIVE_HOSTS:
+                raise ScopeValueError(ErrorCode.SCOPE_007, f"live mode may name at most {MAX_LIVE_HOSTS} hosts")
+            if any("ai_probe" in ai.operations for ai in self.ai_targets):
+                raise ScopeValueError(
+                    ErrorCode.SCOPE_011,
+                    "ai_probe is not available in live mode in this version: its probe texts need their own review",
+                )
+        elif self.authorization is not None or self.egress is not None:
+            raise ScopeValueError(ErrorCode.SCOPE_009, "authorization and egress are valid only with mode live")
 
     def _check_api_targets(self) -> None:
         ids: set[str] = set()
@@ -954,6 +1027,20 @@ def normalised(config: ScopeConfig) -> dict[str, Any]:
         result["ai_targets"] = [_normalised_ai(ai) for ai in config.ai_targets]
     if config.api_targets:
         result["api_targets"] = [_normalised_api(api) for api in config.api_targets]
+    if config.authorization is not None:
+        auth = config.authorization
+        result["authorization"] = {
+            "engagement": auth.engagement,
+            "not_before": None
+            if auth.not_before is None
+            else auth.not_before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "not_after": auth.not_after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    if config.egress is not None:
+        result["egress"] = {
+            "allowed_networks": list(config.egress.allowed_networks),
+            "max_requests_per_second": config.egress.max_requests_per_second,
+        }
     return result
 
 

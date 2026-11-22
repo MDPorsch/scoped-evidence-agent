@@ -32,6 +32,8 @@ from scopedagent.domain.findings import FindingDetails, ReviewDecision
 from scopedagent.domain.models import Engagement, FindingDraft, FindingWording, Run
 from scopedagent.domain.state_machine import Actor, ActorType
 from scopedagent.errors import AiError, ErrorCode, PolicyError, ScopedAgentError
+from scopedagent.live.controller import LiveRequest, run_live, work_directory
+from scopedagent.live.runtime import DockerRuntime, Runtime, Session
 from scopedagent.logs import safe_text
 from scopedagent.output.report import (
     build_report,
@@ -41,8 +43,9 @@ from scopedagent.output.report import (
     write_report,
 )
 from scopedagent.pipeline.orchestrator import execute_run
-from scopedagent.policy.authorization import AUTHORIZATION_NOTICE
+from scopedagent.policy.authorization import AUTHORIZATION_NOTICE, attestation
 from scopedagent.policy.scope import load_scope, parse_scope
+from scopedagent.storage.approvals import grant_approval, list_approvals, revoke_approval
 from scopedagent.storage.artifacts import ArtifactStore
 from scopedagent.storage.audit import verify_chain
 from scopedagent.storage.database import DataDir, open_database, upgrade_database_with_backup
@@ -95,6 +98,12 @@ audit_app = typer.Typer(no_args_is_help=True, help="The audit trail.")
 observations_app = typer.Typer(no_args_is_help=True, help="Stored observations.")
 findings_app = typer.Typer(no_args_is_help=True, help="Draft findings and their review.")
 report_app = typer.Typer(no_args_is_help=True, help="Reports.")
+approvals_app = typer.Typer(
+    no_args_is_help=True, help="Approvals for live runs (a recorded pause, bound to one scope)."
+)
+live_app = typer.Typer(
+    no_args_is_help=True, help="Live remote collection: the only commands that can leave this machine."
+)
 ai_app = typer.Typer(
     no_args_is_help=True, help="The optional model that may reword a draft's sentences (off by default)."
 )
@@ -123,6 +132,8 @@ app.add_typer(observations_app, name="observations")
 app.add_typer(findings_app, name="findings")
 app.add_typer(report_app, name="report")
 app.add_typer(ai_app, name="ai")
+app.add_typer(approvals_app, name="approvals")
+app.add_typer(live_app, name="live")
 
 
 def _data_dir(chosen: Path | None) -> DataDir:
@@ -323,6 +334,20 @@ def _ai_hint(root: Path, result: Any) -> None:
         )
 
 
+def _print_result(result: Any) -> None:
+    typer.echo(f"run {result.run_id}   state: {result.state}")
+    typer.echo(f"scope sha256: {result.scope_sha256}")
+    typer.echo(
+        f"planned operations: {result.planned}   observations recorded: {result.observations}   "
+        f"artifacts stored: {result.artifacts}   redactions: {result.redactions}"
+    )
+    typer.echo(_coverage_line(result))
+    typer.echo(f"findings drafted: {result.findings}" + (" (awaiting review)" if result.findings else ""))
+    typer.echo(f"note: {DRAFT_NOTE}")
+    typer.echo(f"note: {NO_DRAFT_NOTE}")
+    typer.echo(f"note: {AUTHORIZATION_NOTICE}")
+
+
 @app.command("run")
 def run_command(
     ctx: typer.Context,
@@ -330,14 +355,16 @@ def run_command(
     fixture: Annotated[
         Path, typer.Option("--fixture", help="The fixture pack (a YAML file) that answers the operations.")
     ],
-    live: Annotated[bool, typer.Option("--live", help="Not available in this version.")] = False,
+    live: Annotated[bool, typer.Option("--live", help="Refused: live mode is `scoped-agent live run`.")] = False,
     data_dir: DataDirOption = None,
 ) -> None:
     """Offline run: validate the scope, collect from the pack, store redacted evidence. Opens no network connection."""
     app_ctx = _context(ctx)
     try:
         if live:
-            raise PolicyError(ErrorCode.POLICY_001, "live mode is not available in this version (D-E01)")
+            raise PolicyError(
+                ErrorCode.POLICY_001, "run never opens a connection: live mode is `scoped-agent live run` (D-E37)"
+            )
         now = app_ctx.clock()
         loaded = load_scope(scope, now=now)
         pack = load_pack(fixture)
@@ -358,17 +385,7 @@ def run_command(
             database.close()
     except ScopedAgentError as exc:
         raise _fail(exc) from None
-    typer.echo(f"run {result.run_id}   state: {result.state}")
-    typer.echo(f"scope sha256: {result.scope_sha256}")
-    typer.echo(
-        f"planned operations: {result.planned}   observations recorded: {result.observations}   "
-        f"artifacts stored: {result.artifacts}   redactions: {result.redactions}"
-    )
-    typer.echo(_coverage_line(result))
-    typer.echo(f"findings drafted: {result.findings}" + (" (awaiting review)" if result.findings else ""))
-    typer.echo(f"note: {DRAFT_NOTE}")
-    typer.echo(f"note: {NO_DRAFT_NOTE}")
-    typer.echo(f"note: {AUTHORIZATION_NOTICE}")
+    _print_result(result)
     _ai_hint(directory.root, result)
     raise typer.Exit(int(result.exit_code))
 
@@ -853,3 +870,187 @@ def findings_reword(
     )
     if any(name != "ok" for name in summary.statuses):
         raise typer.Exit(2)
+
+
+# ------------------------------------------------------------------------------------------- approvals ----
+def _parse_until(text: str, now: datetime) -> datetime:
+    try:
+        moment = datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        raise PolicyError(ErrorCode.POLICY_003, "--until is a UTC time like 2026-12-01T00:00:00Z") from None
+    if moment <= now:
+        raise PolicyError(ErrorCode.POLICY_003, "--until must be in the future")
+    return moment
+
+
+@approvals_app.command("grant")
+def approvals_grant(
+    ctx: typer.Context,
+    scope: Annotated[Path, typer.Option("--scope", help="The live scope this approval is for.")],
+    until: Annotated[str, typer.Option("--until", help="When it ends, UTC: 2026-12-01T00:00:00Z.")],
+    data_dir: DataDirOption = None,
+) -> None:
+    """Record that live runs of exactly this scope are allowed until a time. You type its hash's start to confirm."""
+    app_ctx = _context(ctx)
+    try:
+        now = app_ctx.clock()
+        loaded = load_scope(scope, now=now)
+        end = _parse_until(until, now)
+        database = open_database(_data_dir(data_dir))
+        try:
+            typer.echo(f"scope {loaded.config.engagement_id}   sha256 {loaded.sha256}")
+            typer.echo(attestation(loaded))
+            typed = typer.prompt(
+                f"Type the first {MIN_REF} characters of the scope hash ({loaded.sha256[:MIN_REF]}) to approve",
+                default="",
+                show_default=False,
+            )
+            if typed.strip() != loaded.sha256[:MIN_REF]:
+                raise PolicyError(ErrorCode.POLICY_003, "the confirmation did not match: nothing was recorded")
+            with database.begin() as session:
+                approval = grant_approval(
+                    session, loaded, until=end, actor=Actor(ActorType.HUMAN, app_ctx.user()), now=now
+                )
+                approval_id = approval.id
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo(f"approval {approval_id} recorded until {_stamp(end)} for scope {loaded.sha256[:MIN_REF]}")
+    typer.echo("use it with: scoped-agent live run --approval-id " + approval_id + " --ack-authorization ...")
+
+
+@approvals_app.command("list")
+def approvals_list(ctx: typer.Context, data_dir: DataDirOption = None) -> None:
+    """Every approval, with whether it is still valid."""
+    now = _context(ctx).clock()
+    try:
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                rows = list_approvals(session, now=now)
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    if not rows:
+        typer.echo("no approvals")
+        return
+    typer.echo("id                                scope     expires               status    by / engagement")
+    for approval, state in rows:
+        typer.echo(
+            f"{approval.id}  {approval.scope_sha256[:MIN_REF]}  {_stamp(approval.expires_at)}  {state:<8}  "
+            f"{safe_text(approval.granted_by, 40)} / {safe_text(approval.engagement, 60)}"
+        )
+
+
+@approvals_app.command("revoke")
+def approvals_revoke(
+    ctx: typer.Context,
+    approval_id: Annotated[str, typer.Argument(help="The approval to end.")],
+    reason: Annotated[str, typer.Option("--reason", help="Why. Required.")],
+    data_dir: DataDirOption = None,
+) -> None:
+    """End an approval. A revoked approval is kept, marked, and never valid again."""
+    app_ctx = _context(ctx)
+    try:
+        database = open_database(_data_dir(data_dir))
+        try:
+            with database.begin() as session:
+                revoke_approval(
+                    session,
+                    approval_id,
+                    actor=Actor(ActorType.HUMAN, app_ctx.user()),
+                    reason=reason,
+                    now=app_ctx.clock(),
+                )
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo(f"approval {approval_id} revoked")
+
+
+# ---------------------------------------------------------------------------------------------- live run ----
+def _credentials(values: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for value in values:
+        name, separator, env = value.partition("=")
+        if not separator or not name or not env or name in result:
+            raise PolicyError(
+                ErrorCode.POLICY_003,
+                "--credential is NAME=ENVIRONMENT_VARIABLE, once per name (the value is never given here)",
+            )
+        result[name] = env
+    return result
+
+
+@live_app.command("run")
+def live_run(
+    ctx: typer.Context,
+    scope: Annotated[Path, typer.Option("--scope", help="A scope with mode live.")],
+    approval_id: Annotated[str, typer.Option("--approval-id", help="From `approvals grant` for this exact scope.")],
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image", help="The collector image, pinned: name@sha256:... or the sha256:... ID of the image you built"
+        ),
+    ],
+    acknowledge: Annotated[
+        bool, typer.Option("--ack-authorization", help="Required on every live run: you are saying yes, now.")
+    ] = False,
+    credential: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--credential", help="TARGET or TARGET/PRINCIPAL=ENVVAR (the name of the variable that holds the key)."
+        ),
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Collect from the declared hosts, inside an isolated container that proves its isolation first."""
+    app_ctx = _context(ctx)
+    try:
+        now = app_ctx.clock()
+        loaded = load_scope(scope, now=now)
+        request = LiveRequest(
+            loaded=loaded,
+            human=Actor(ActorType.HUMAN, app_ctx.user()),
+            now=now,
+            approval_id=approval_id,
+            acknowledged=acknowledge,
+            image=image,
+            credentials=_credentials(credential or []),
+        )
+        directory = _data_dir(data_dir)
+        database = open_database(directory)
+        try:
+            result = run_live(
+                database,
+                ArtifactStore(directory),
+                request,
+                runtime=_LazyRuntime(image),
+                environ=os.environ,
+                work_root=work_directory(directory.root),
+            )
+        finally:
+            database.close()
+    except ScopedAgentError as exc:
+        raise _fail(exc) from None
+    typer.echo(f"note: {attestation(loaded)}")
+    _print_result(result)
+    raise typer.Exit(int(result.exit_code))
+
+
+def _runtime(image: str) -> Runtime:
+    """The container runtime. A function so a test can put a fake in its place without a Docker daemon."""
+    return DockerRuntime(image)
+
+
+class _LazyRuntime:
+    """Builds the container runtime only when a container is actually needed: after every gate has passed."""
+
+    def __init__(self, image: str) -> None:
+        self._image = image
+
+    def start(self, *, credential_envs: list[str], out_dir: Path) -> Session:
+        return _runtime(self._image).start(credential_envs=credential_envs, out_dir=out_dir)

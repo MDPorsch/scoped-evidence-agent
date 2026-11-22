@@ -21,7 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from scopedagent.ai.fields import label
-from scopedagent.domain.models import Artifact, AuditEvent, Engagement, Observation, Run, Target
+from scopedagent.domain.models import Artifact, AuditEvent, Engagement, LiveRun, Observation, Run, Target
 from scopedagent.errors import AuditError, ErrorCode, PolicyError, ReportError, StateError
 from scopedagent.pipeline.redact import redact_text
 from scopedagent.storage.audit import verify_chain
@@ -164,6 +164,7 @@ def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[st
     scope = json.loads(engagement.scope_json)
     findings = [_finding_entry(session, f, order) for f in list_findings(session, run_id)]
     notes = [*NOTES, *([MODEL_NOTE] if any("wordings" in f for f in findings) else [])]
+    live = _live_section(session, run_id, scope)
     return {
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "scoped-agent", "version": tool_version},
@@ -190,6 +191,32 @@ def build_report(session: Session, run_id: str, *, tool_version: str) -> dict[st
         "findings": findings,
         "audit": {"events": events, "chain_verified": verified, "head_hash": head},
         "notes": notes,
+        **({"live": live} if live is not None else {}),  # absent for an offline run, so its report is unchanged
+    }
+
+
+def _live_section(session: Session, run_id: str, scope: dict[str, Any]) -> dict[str, Any] | None:
+    """What a live run was done under: the declared authorization, the approval, the image, the isolation proof and the hosts."""
+    row = session.get(LiveRun, run_id)
+    if row is None:
+        return None
+    proof = json.loads(row.proof_json)
+    authorization = scope.get("authorization") or {}
+    return {
+        "attestation": (
+            f"Authorization was declared by the operator for engagement {authorization.get('engagement')} "
+            f"(valid from {authorization.get('not_before') or 'the start of the run'} to {authorization.get('not_after')}) "
+            "and is not verified by the tool."
+        ),
+        "engagement": row.engagement,
+        "approval_id": row.approval_id,
+        "image": row.image,
+        "isolation": {
+            "passed": all(c["passed"] for c in proof["checks"]),
+            "checks": [{"name": c["name"], "passed": c["passed"], "detail": c["detail"]} for c in proof["checks"]],
+            "pinned": [f"{a['address']}:{a['port']}" for a in proof["allowed"]],
+        },
+        "hosts": json.loads(row.resolutions_json),
     }
 
 
@@ -286,6 +313,27 @@ def _finding_markdown(finding: dict[str, Any]) -> list[str]:
     return [*lines, ""]
 
 
+def _live_markdown(live: dict[str, Any]) -> list[str]:
+    lines = ["", "## Live collection", "", md_escape(live["attestation"]), ""]
+    lines += [
+        f"- approval: {_code(live['approval_id'])}",
+        f"- image: {_code(live['image'])}",
+        f"- isolation proof: {'passed' if live['isolation']['passed'] else 'NOT PASSED'}, "
+        f"{len(live['isolation']['checks'])} checks, pinned {md_escape(', '.join(live['isolation']['pinned']) or 'nothing')}",
+    ]
+    lines += [
+        f"  - {'ok' if c['passed'] else 'FAILED'}: {md_escape(c['name'])} ({md_escape(c['detail'])})"
+        for c in live["isolation"]["checks"]
+    ]
+    for host in live["hosts"]:
+        shown = ", ".join(host["addresses"]) or f"not contacted: {host['refusal']}"
+        if not host["addresses"] and host.get("resolved"):
+            shown += f" (resolved to {', '.join(host['resolved'])})"
+        cname = f", canonical name {host['canonical_name']} (data only)" if host["canonical_name"] else ""
+        lines.append(f"- host {md_escape(host['host'])}: {md_escape(shown)}{md_escape(cname)}")
+    return lines
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     run, engagement, coverage, audit = report["run"], report["engagement"], report["coverage"], report["audit"]
     planned = "unknown" if coverage["planned"] is None else coverage["planned"]
@@ -316,6 +364,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- {_code(o['id'])} {o['type']} {o['status']} {md_escape(o['subject'])}, source {_code(o['source_hash'])}, input {_code(o['normalized_input_hash'])}, collected {o['collected_at']}"
         for o in report["observations"]
     ] or ["- none"]
+    if "live" in report:
+        lines += _live_markdown(report["live"])
     lines += ["", "## Artifacts", "", "Identified by hash. Their content is not part of this report.", ""]
     lines += [
         f"- {_code(a['sha256'])} {md_escape(a['mime'])}, {a['size']} bytes, {a['redaction_status']}"

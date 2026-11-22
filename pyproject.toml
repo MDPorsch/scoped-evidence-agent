@@ -39,10 +39,14 @@ Security = "https://github.com/MDPorsch/scoped-evidence-agent/security/policy"
 ai = [
     "anthropic>=1,<2",
 ]
+live = [
+    "cryptography>=43",  # read only inside the collector's container: it parses certificates
+]
 
 [dependency-groups]
 dev = [
     "anthropic>=1,<2",
+    "cryptography>=43",
     "hypothesis>=6.170.17,<7",
     "mypy>=2.4.1,<3",
     "pip-audit>=2.10.1,<3",
@@ -63,9 +67,11 @@ module-name = "scopedagent"
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config -m 'not container'"
 markers = [
     "milestone(name): the milestone (M1..M6) that must make this test pass; a red test is never skipped or xfailed",
+    "loopback: the test may open sockets, but only on loopback (the live collector's own tests)",
+    "container: needs a real container runtime; deselected by default and run by their own CI job",
 ]
 
 # ------------------------------------------------------------------ ruff ----
@@ -87,6 +93,8 @@ ignore = ["PLR2004"]
 "src/scopedagent/cli.py" = ["T201", "PLR0913", "PLR0917"]  # a CLI command has one parameter per option
 "src/scopedagent/storage/**" = ["PLR0913", "PLR0917"]  # service functions take explicit keyword-only arguments on purpose
 "src/scopedagent/ai/**" = ["PLR0913", "PLR0917"]  # keyword-only arguments
+"src/scopedagent/live/**" = ["E501", "PLR0913", "PLR0917", "PLR0912", "PLR0915"]  # the design prose, and a controller that runs one long procedure
+"src/scopedagent/storage/approvals.py" = ["E501"]
 "src/scopedagent/policy/**" = ["PLR0913", "PLR0917"]
 "src/scopedagent/pipeline/**" = ["PLR0913", "PLR0917"]
 "src/scopedagent/adapters/**" = ["PLR0911", "PLR0913", "PLR0917"]  # many answers to one question; keyword-only arguments

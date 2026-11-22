@@ -103,13 +103,14 @@ async def execute_run(
     human: Actor,
     now: datetime,
     adapters: Mapping[str, Adapter] | None = None,
+    live: bool = False,
 ) -> RunResult:
     check_run_allowed(
-        loaded, now=now, expected_sha256=loaded.sha256
-    )  # live mode, a changed scope and an expiry are refused first
+        loaded, now=now, expected_sha256=loaded.sha256, live=live
+    )  # a scope of the other mode, a changed scope and an expiry are refused first
     with db.begin() as session:
         engagement = register_engagement(session, loaded, now=now)
-        run = create_run(session, engagement, actor=human, now=now, planned_operations=len(loaded.planned))
+        run = create_run(session, engagement, actor=human, now=now, planned_operations=len(loaded.planned), live=live)
         run_id = run.id
         targets = {
             (t.kind, t.host_canonical, t.scheme, t.port): t.id

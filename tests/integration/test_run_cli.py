@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from scopedagent.cli import AppContext, app
 from tests.support import AI_PACK, FIXTURES, NOW, SCOPE_FILES, dump, pack_variant, scope_dict
+from tests.unit.test_scope_live import live_dict
 
 pytestmark = pytest.mark.milestone("M2")
 
@@ -97,8 +98,7 @@ def test_the_live_flag_is_refused_and_nothing_is_stored(data_dir: Path) -> None:
 
 
 def test_a_live_scope_is_refused_and_nothing_is_stored(data_dir: Path, tmp_path: Path) -> None:
-    data = scope_dict("healthy")
-    data["mode"] = "live"
+    data = live_dict("healthy")
     scope = tmp_path / "live.yaml"
     scope.write_text(dump(data), encoding="utf-8")
     result = do_run(data_dir, "healthy", scope)
